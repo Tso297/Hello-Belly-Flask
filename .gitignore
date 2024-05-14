@@ -1,0 +1,4 @@
+flask-env
+.env
+__pycache__
+migrations
