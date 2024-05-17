@@ -7,7 +7,9 @@ from flask import Blueprint, request, jsonify, redirect, session, url_for, make_
 from flask_cors import cross_origin
 from . import api
 from app import app
+import logging
 
+logging.basicConfig(level=logging.DEBUG)
 app.secret_key = os.urandom(24)
 
 CLIENT_ID = 'OAADD7FsTk6Wi0FG6nhvwg'
@@ -23,41 +25,79 @@ def home():
     print('Home route accessed')
     return 'Welcome to the Zoom Integration'
 
-@api.route('/login')
-def login():
-    authorization_url = f"{AUTHORIZATION_BASE_URL}?response_type=code&client_id={CLIENT_ID}&redirect_uri={REDIRECT_URI}"
-    print(f'Redirecting to: {authorization_url}')
-    return redirect(authorization_url)
+def encode_credentials(client_id, client_secret):
+    credentials = f"{client_id}:{client_secret}"
+    base64_credentials = base64.b64encode(credentials.encode('utf-8')).decode('utf-8')
+    return base64_credentials
 
-@api.route('/callback')
+@app.route('/api/callback', methods=['GET'])
 def callback():
+    app.logger.debug('Callback route called')
     code = request.args.get('code')
-    print(f'Callback route accessed with code: {code}')
+    if not code:
+        app.logger.error('Authorization code is missing in the callback request')
+        return jsonify({'error': 'Authorization code is missing'}), 400
+
+    app.logger.info('Authorization code received: %s', code)
+
     payload = {
         'grant_type': 'authorization_code',
         'code': code,
-        'redirect_uri': REDIRECT_URI,
+        'redirect_uri': REDIRECT_URI
     }
-    headers = {
-        'Authorization': f'Basic {base64.b64encode(f"{CLIENT_ID}:{CLIENT_SECRET}".encode()).decode()}',
-    }
-    response = requests.post(TOKEN_URL, data=payload, headers=headers)
-    print(f'Response from token request: {response.status_code} - {response.text}')
-    response_data = response.json()
-    session['access_token'] = response_data['access_token']
-    session['refresh_token'] = response_data['refresh_token']
-    print('Access token and refresh token stored in session')
-    print(f'Access token: {session["access_token"]}')
-    return redirect(url_for('.profile'))
 
-@api.route('/profile')
-def profile():
-    print('Profile route accessed')
+    encoded_credentials = encode_credentials(CLIENT_ID, CLIENT_SECRET)
     headers = {
-        'Authorization': f'Bearer {session["access_token"]}'
+        'Authorization': f'Basic {encoded_credentials}',
+        'Content-Type': 'application/x-www-form-urlencoded'
     }
-    response = requests.get(f'{API_BASE_URL}/users/me', headers=headers)
-    print(f'Response from profile request: {response.status_code} - {response.text}')
+
+    app.logger.info('Sending POST request to Zoom token endpoint with payload: %s', payload)
+
+    try:
+        response = requests.post(TOKEN_URL, data=payload, headers=headers)
+        app.logger.debug('Zoom token endpoint response status: %s', response.status_code)
+        app.logger.debug('Zoom token endpoint response headers: %s', response.headers)
+        app.logger.debug('Zoom token endpoint response body: %s', response.text)
+        response.raise_for_status()  # Raise an exception for HTTP errors
+    except requests.RequestException as e:
+        app.logger.error('Exception occurred while requesting token from Zoom: %s', str(e))
+        return jsonify({'error': 'Failed to get token from Zoom', 'details': response.text}), 500
+
+    response_data = response.json()
+    access_token = response_data.get('access_token')
+    refresh_token = response_data.get('refresh_token')
+    
+    if not access_token or not refresh_token:
+        app.logger.error('Access token or refresh token is missing in the response')
+        return jsonify({'error': 'Failed to get complete token from Zoom'}), 500
+
+    session['zoom_access_token'] = access_token
+    session['zoom_refresh_token'] = refresh_token
+
+    app.logger.info('Access token received: %s', access_token)
+    app.logger.info('Refresh token received: %s', refresh_token)
+
+    # Send the authorization code back to the opener window
+    return f"""
+    <script>
+      window.opener.postMessage({{code: '{code}'}}, "http://localhost:5173");
+      window.close();
+    </script>
+    """
+
+
+@app.route('/api/profile')
+def profile():
+    if 'zoom_access_token' not in session:
+        return jsonify({'error': 'Unauthorized'}), 401
+    
+    headers = {'Authorization': f'Bearer {session["zoom_access_token"]}'}
+    response = requests.get('https://api.zoom.us/v2/users/me', headers=headers)
+    if response.status_code != 200:
+        print(f'Error fetching profile: {response.status_code} - {response.text}')
+        return jsonify({'error': 'Failed to fetch profile from Zoom'}), response.status_code
+    
     return jsonify(response.json())
 
 @api.route('/create_meeting', methods=['OPTIONS', 'POST'])
@@ -111,35 +151,45 @@ def create_meeting():
 
     return jsonify(response.json())
 
-@api.route('/zoom_token', methods=['GET'])
-@cross_origin()
-def generate_zoom_token():
-    print('Generating Zoom token')
-    if 'access_token' not in session:
-        print('Unauthorized access to generate_zoom_token route')
-        return jsonify({'error': 'Unauthorized'}), 401
-
-    meeting_number = request.args.get('meeting_number')
-    role = int(request.args.get('role', 0))  # 0 for participant, 1 for host
-
-    print(f'Generating token for meeting_number: {meeting_number}, role: {role}')
-
+@app.route('/get_zoom_token', methods=['POST'])
+def get_zoom_token():
+    encoded_credentials = encode_credentials(CLIENT_ID, CLIENT_SECRET)
+    headers = {
+        'Authorization': f'Basic {encoded_credentials}',
+        'Content-Type': 'application/x-www-form-urlencoded'
+    }
     payload = {
-        'meetingNumber': meeting_number,
-        'role': role,
-        'userName': 'your user name',
-        'apiKey': CLIENT_ID,
-        'userEmail': 'your user email',
-        'passWord': '',
+        'grant_type': 'client_credentials'
     }
 
-    response = requests.post(f'{API_BASE_URL}/meetings/{meeting_number}', json=payload, headers={
-        'Authorization': f'Bearer {session["access_token"]}',
-        'Content-Type': 'application/json',
-    })
+    app.logger.info('Sending POST request to Zoom token endpoint with payload: %s', payload)
 
-    print(f'Response from token generation request: {response.status_code} - {response.text}')
-    return jsonify(response.json())
+    try:
+        response = requests.post(TOKEN_URL, data=payload, headers=headers)
+        app.logger.debug('Zoom token endpoint response status: %s', response.status_code)
+        app.logger.debug('Zoom token endpoint response headers: %s', response.headers)
+        app.logger.debug('Zoom token endpoint response body: %s', response.text)
+        response.raise_for_status()  # Raise an exception for HTTP errors
+    except requests.RequestException as e:
+        app.logger.error('Exception occurred while requesting token from Zoom: %s', str(e))
+        return jsonify({'error': 'Failed to get token from Zoom', 'details': response.text}), 500
+
+    response_data = response.json()
+    access_token = response_data.get('access_token')
+
+    if not access_token:
+        app.logger.error('Access token is missing in the response')
+        return jsonify({'error': 'Failed to get complete token from Zoom'}), 500
+
+    session['zoom_access_token'] = access_token
+
+    app.logger.info('Access token received: %s', access_token)
+
+    return jsonify({'access_token': access_token})
+
+@app.route('/')
+def index():
+    return redirect(REDIRECT_URI)
 
 @api.route('/webhook', methods=['POST'])
 @cross_origin()
