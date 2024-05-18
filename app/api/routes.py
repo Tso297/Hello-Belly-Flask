@@ -1,16 +1,20 @@
 import os
+from flask import Blueprint, request, jsonify, redirect, make_response
+from app import app, db
+from app.models import UserSession
 import hmac
 import hashlib
 import base64
 import requests
-from flask import Blueprint, request, jsonify, redirect, session, url_for, make_response
-from flask_cors import cross_origin
-from . import api
-from app import app
 import logging
+from . import api
+from datetime import datetime, timedelta
+from flask_cors import cross_origin, CORS
 
 logging.basicConfig(level=logging.DEBUG)
-app.secret_key = os.urandom(24)
+
+CORS(app, resources={r"/api/*": {"origins": "*"}}, supports_credentials=True)
+
 
 CLIENT_ID = 'OAADD7FsTk6Wi0FG6nhvwg'
 CLIENT_SECRET = 'ARCngsGPAYstjyQQB2iH4tQuqkNE08JA'
@@ -22,7 +26,7 @@ API_BASE_URL = 'https://api.zoom.us/v2'
 
 @api.route('/')
 def home():
-    print('Home route accessed')
+    app.logger.info('Home route accessed')
     return 'Welcome to the Zoom Integration'
 
 def encode_credentials(client_id, client_secret):
@@ -67,13 +71,15 @@ def callback():
     response_data = response.json()
     access_token = response_data.get('access_token')
     refresh_token = response_data.get('refresh_token')
-    
+    expiry = datetime.utcnow() + timedelta(seconds=response_data.get('expires_in', 3600))
+
     if not access_token or not refresh_token:
         app.logger.error('Access token or refresh token is missing in the response')
         return jsonify({'error': 'Failed to get complete token from Zoom'}), 500
 
-    session['zoom_access_token'] = access_token
-    session['zoom_refresh_token'] = refresh_token
+    user_session = UserSession(id='default_user', access_token=access_token, refresh_token=refresh_token, expiry=expiry)
+    db.session.add(user_session)
+    db.session.commit()
 
     app.logger.info('Access token received: %s', access_token)
     app.logger.info('Refresh token received: %s', refresh_token)
@@ -86,29 +92,29 @@ def callback():
     </script>
     """
 
-
 @app.route('/api/profile')
 def profile():
-    if 'zoom_access_token' not in session:
+    app.logger.info('Profile route accessed')
+    user_session = UserSession.query.filter_by(id='default_user').first()
+    if not user_session or not user_session.access_token:
+        app.logger.warning('Unauthorized access to profile route')
         return jsonify({'error': 'Unauthorized'}), 401
     
-    headers = {'Authorization': f'Bearer {session["zoom_access_token"]}'}
+    headers = {'Authorization': f'Bearer {user_session.access_token}'}
     response = requests.get('https://api.zoom.us/v2/users/me', headers=headers)
     if response.status_code != 200:
-        print(f'Error fetching profile: {response.status_code} - {response.text}')
+        app.logger.error('Error fetching profile: %s - %s', response.status_code, response.text)
         return jsonify({'error': 'Failed to fetch profile from Zoom'}), response.status_code
     
     return jsonify(response.json())
 
-@api.route('/create_meeting', methods=['OPTIONS', 'POST'])
-@cross_origin()
+@app.route('/api/create_meeting', methods=['OPTIONS', 'POST'])
+@cross_origin(origins='http://localhost:5173', supports_credentials=True)
 def create_meeting():
-    print(f'Received request to create meeting. Method: {request.method}')
-    print(f'Session: {session}')
-    print(f'Access token in session: {session.get("access_token")}')
+    app.logger.info('Received request to create meeting. Method: %s', request.method)
 
     if request.method == 'OPTIONS':
-        print('Handling OPTIONS request')
+        app.logger.info('Handling OPTIONS request')
         response = make_response()
         response.headers['Access-Control-Allow-Origin'] = 'http://localhost:5173'
         response.headers['Access-Control-Allow-Methods'] = 'POST, OPTIONS'
@@ -117,17 +123,18 @@ def create_meeting():
         response.status_code = 204
         return response
 
-    if 'access_token' not in session:
-        print('Unauthorized access to create_meeting route')
+    user_session = UserSession.query.filter_by(id='default_user').first()
+    if not user_session or not user_session.access_token:
+        app.logger.warning('Unauthorized access to create_meeting route')
         return jsonify({'error': 'Unauthorized'}), 401
 
     data = request.json
-    print(f'Request JSON data: {data}')
+    app.logger.info('Request JSON data: %s', data)
     topic = data.get('topic', 'New Meeting')
     start_time = data.get('start_time')
     duration = data.get('duration', 30)  # Default duration 30 minutes
 
-    print(f'Creating meeting with topic: {topic}, start_time: {start_time}, duration: {duration}')
+    app.logger.info('Creating meeting with topic: %s, start_time: %s, duration: %s', topic, start_time, duration)
 
     payload = {
         'topic': topic,
@@ -138,21 +145,33 @@ def create_meeting():
     }
 
     headers = {
-        'Authorization': f'Bearer {session["access_token"]}',
+        'Authorization': f'Bearer {user_session.access_token}',
         'Content-Type': 'application/json'
     }
 
-    response = requests.post(f'{API_BASE_URL}/users/me/meetings', json=payload, headers=headers)
-    print(f'Response from create meeting request: {response.status_code} - {response.text}')
-    
-    if response.status_code != 201:
-        print('Error creating meeting:', response.text)
-        return jsonify({'error': 'Failed to create meeting'}), response.status_code
+    app.logger.info('Access token being used: %s', user_session.access_token)
+    app.logger.info('Payload being sent: %s', payload)
 
-    return jsonify(response.json())
+    try:
+        app.logger.info('Sending POST request to Zoom API with payload: %s', payload)
+        response = requests.post(f'{API_BASE_URL}/users/me/meetings', json=payload, headers=headers)
+        app.logger.info('Response from create meeting request: %s - %s', response.status_code, response.text)
+
+        if response.status_code != 201:
+            app.logger.error('Error creating meeting: %s', response.text)
+            return jsonify({'error': 'Failed to create meeting'}), response.status_code
+
+        app.logger.info('Meeting created successfully: %s', response.json())
+        return jsonify(response.json())
+    except requests.RequestException as e:
+        app.logger.error('Exception occurred while creating meeting: %s', str(e))
+        return jsonify({'error': 'Failed to create meeting', 'details': str(e)}), 500
+
+
 
 @app.route('/get_zoom_token', methods=['POST'])
 def get_zoom_token():
+    app.logger.info('get_zoom_token route accessed')
     encoded_credentials = encode_credentials(CLIENT_ID, CLIENT_SECRET)
     headers = {
         'Authorization': f'Basic {encoded_credentials}',
@@ -162,7 +181,7 @@ def get_zoom_token():
         'grant_type': 'client_credentials'
     }
 
-    app.logger.info('Sending POST request to Zoom token endpoint with payload: %s', payload)
+    app.logger.info('Sending POST request to Zoom token endpoint with payload: %s')
 
     try:
         response = requests.post(TOKEN_URL, data=payload, headers=headers)
@@ -181,14 +200,24 @@ def get_zoom_token():
         app.logger.error('Access token is missing in the response')
         return jsonify({'error': 'Failed to get complete token from Zoom'}), 500
 
-    session['zoom_access_token'] = access_token
+    expiry = datetime.utcnow() + timedelta(seconds=response_data.get('expires_in', 3600))
+
+    user_session = UserSession.query.filter_by(id='default_user').first()
+    if not user_session:
+        user_session = UserSession(id='default_user', access_token=access_token, refresh_token='', expiry=expiry)
+    else:
+        user_session.access_token = access_token
+        user_session.expiry = expiry
+
+    db.session.add(user_session)
+    db.session.commit()
 
     app.logger.info('Access token received: %s', access_token)
 
     return jsonify({'access_token': access_token})
-
 @app.route('/')
 def index():
+    app.logger.info('Index route accessed')
     return redirect(REDIRECT_URI)
 
 @api.route('/webhook', methods=['POST'])
@@ -200,11 +229,11 @@ def webhook():
     # Verify the signature
     computed_signature = hmac.new(SECRET_TOKEN.encode(), request_body, hashlib.sha256).hexdigest()
     if not hmac.compare_digest(computed_signature, zoom_signature):
-        print('Invalid signature on webhook request')
+        app.logger.error('Invalid signature on webhook request')
         return jsonify({'error': 'Invalid signature'}), 400
 
     event_data = request.json
     # Handle the event data
-    print(f'Webhook event data: {event_data}')
+    app.logger.info('Webhook event data: %s', event_data)
 
     return jsonify({'status': 'success'})
