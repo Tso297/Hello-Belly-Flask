@@ -23,7 +23,7 @@ SECRET_TOKEN = 'lj2nchtOTl64t2cysVYLfA'
 AUTHORIZATION_BASE_URL = 'https://zoom.us/oauth/authorize'
 TOKEN_URL = 'https://zoom.us/oauth/token'
 API_BASE_URL = 'https://api.zoom.us/v2'
-
+########################################################################################
 @api.route('/')
 def home():
     app.logger.info('Home route accessed')
@@ -237,3 +237,4 @@ def webhook():
     app.logger.info('Webhook event data: %s', event_data)
 
     return jsonify({'status': 'success'})
+#####################################################################################
