@@ -77,6 +77,7 @@ def callback():
         app.logger.error('Access token or refresh token is missing in the response')
         return jsonify({'error': 'Failed to get complete token from Zoom'}), 500
 
+    # Store access token, refresh token, and expiry in the database
     user_session = UserSession(id='default_user', access_token=access_token, refresh_token=refresh_token, expiry=expiry)
     db.session.add(user_session)
     db.session.commit()
@@ -151,43 +152,25 @@ def refresh_zoom_token(user_session):
     app.logger.info('Access token received: %s', access_token)
     return access_token
 
-@app.route('/api/create_meeting', methods=['OPTIONS', 'POST'])
-@cross_origin(origins='http://localhost:5173', supports_credentials=True)
+@app.route('/api/create_meeting', methods=['POST'])
 def create_meeting():
-    app.logger.info('Received request to create meeting. Method: %s', request.method)
-
-    if request.method == 'OPTIONS':
-        app.logger.info('Handling OPTIONS request')
-        response = make_response()
-        response.headers['Access-Control-Allow-Origin'] = 'http://localhost:5173'
-        response.headers['Access-Control-Allow-Methods'] = 'POST, OPTIONS'
-        response.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization'
-        response.headers['Access-Control-Allow-Credentials'] = 'true'
-        response.status_code = 204
-        return response
-
-    user_session = UserSession.query.filter_by(id='default_user').first()
-    if not user_session or not user_session.refresh_token:
-        app.logger.warning('Unauthorized access to create_meeting route')
+    auth_header = request.headers.get('Authorization')
+    if not auth_header or not auth_header.startswith('Bearer '):
         return jsonify({'error': 'Unauthorized'}), 401
 
-    # Refresh the token if needed
-    try:
-        access_token = refresh_zoom_token(user_session)
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
+    access_token = auth_header.split(' ')[1]
+    user_session = UserSession.query.filter_by(access_token=access_token).first()
+    if not user_session or user_session.expiry < datetime.utcnow():
+        return jsonify({'error': 'Unauthorized'}), 401
 
     data = request.json
-    app.logger.info('Request JSON data: %s', data)
     topic = data.get('topic', 'New Meeting')
     start_time = data.get('start_time')
-    duration = data.get('duration', 30)  # Default duration 30 minutes
-
-    app.logger.info('Creating meeting with topic: %s, start_time: %s, duration: %s', topic, start_time, duration)
+    duration = data.get('duration', 30)
 
     payload = {
         'topic': topic,
-        'type': 2,  # Scheduled meeting
+        'type': 2,
         'start_time': start_time,
         'duration': duration,
         'timezone': 'UTC',
@@ -195,26 +178,14 @@ def create_meeting():
 
     headers = {
         'Authorization': f'Bearer {access_token}',
-        'Content-Type': 'application/json'
+        'Content-Type': 'application/json',
     }
 
-    app.logger.info('Access token being used: %s', access_token)
-    app.logger.info('Payload being sent: %s', payload)
+    response = requests.post('https://api.zoom.us/v2/users/me/meetings', json=payload, headers=headers)
+    if response.status_code != 201:
+        return jsonify({'error': 'Failed to create meeting'}), response.status_code
 
-    try:
-        app.logger.info('Sending POST request to Zoom API with payload: %s', payload)
-        response = requests.post(f'{API_BASE_URL}/users/me/meetings', json=payload, headers=headers)
-        app.logger.info('Response from create meeting request: %s - %s', response.status_code, response.text)
-
-        if response.status_code != 201:
-            app.logger.error('Error creating meeting: %s', response.text)
-            return jsonify({'error': 'Failed to create meeting'}), response.status_code
-
-        app.logger.info('Meeting created successfully: %s', response.json())
-        return jsonify(response.json())
-    except requests.RequestException as e:
-        app.logger.error('Exception occurred while creating meeting: %s', str(e))
-        return jsonify({'error': 'Failed to create meeting', 'details': str(e)}), 500
+    return jsonify(response.json())
 
 @app.route('/get_zoom_token', methods=['POST'])
 def get_zoom_token():
@@ -228,7 +199,7 @@ def get_zoom_token():
         'grant_type': 'client_credentials'
     }
 
-    app.logger.info('Sending POST request to Zoom token endpoint with payload: %s')
+    app.logger.info('Sending POST request to Zoom token endpoint with payload: %s', payload)
 
     try:
         response = requests.post(TOKEN_URL, data=payload, headers=headers)

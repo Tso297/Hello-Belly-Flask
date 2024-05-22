@@ -15,3 +15,6 @@ class UserSession(db.Model):
         self.access_token = access_token
         self.refresh_token = refresh_token
         self.expiry = expiry
+
+    def __repr__(self):
+        return f'<UserSession id={self.id} access_token={self.access_token[:10]}... refresh_token={self.refresh_token[:10]}... expiry={self.expiry}>'
