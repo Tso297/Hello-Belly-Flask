@@ -24,6 +24,7 @@ marshmallow-sqlalchemy==1.0.0
 msgspec==0.18.6
 packaging==24.0
 psycopg2==2.9.9
+PyJWT==2.8.0
 python-dotenv==1.0.1
 redis==5.0.4
 requests==2.31.0
