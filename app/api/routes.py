@@ -2,7 +2,7 @@ import os
 from flask import Blueprint, request, jsonify, redirect, make_response
 from app import app, db
 from app.models import UserSession, User, Appointment
-import logging, time, jwt, requests, base64, hashlib, hmac
+import logging, time, jwt, requests, base64, hashlib, hmac, random, string
 from . import api
 from datetime import datetime, timedelta
 from flask_cors import cross_origin, CORS
@@ -12,8 +12,9 @@ from email.mime.multipart import MIMEMultipart
 import sib_api_v3_sdk
 from sib_api_v3_sdk.rest import ApiException
 from pprint import pprint
-import random
-import string
+from dotenv import load_dotenv
+
+load_dotenv()
 
 logging.basicConfig(level=logging.DEBUG)
 
@@ -22,14 +23,14 @@ CORS(app, resources={r"/api/*": {"origins": "*"}}, supports_credentials=True)
 DOCTOR_EMAIL = "TORCSH30@gmail.com"
 appointments = []
 
-CLIENT_ID = 'OAADD7FsTk6Wi0FG6nhvwg'
-CLIENT_SECRET = 'ARCngsGPAYstjyQQB2iH4tQuqkNE08JA'
-REDIRECT_URI = 'http://localhost:5000/api/callback'
-SECRET_TOKEN = 'lj2nchtOTl64t2cysVYLfA'
-AUTHORIZATION_BASE_URL = 'https://zoom.us/oauth/authorize'
-TOKEN_URL = 'https://zoom.us/oauth/token'
-API_BASE_URL = 'https://api.zoom.us/v2'
-SENDINBLUE_API_KEY = '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'  # Your Sendinblue API key
+CLIENT_ID = os.getenv('CLIENT_ID')
+CLIENT_SECRET = os.getenv('CLIENT_SECRET')
+REDIRECT_URI = os.getenv('REDIRECT_URI')
+SECRET_TOKEN = os.getenv('SECRET_TOKEN')
+AUTHORIZATION_BASE_URL = os.getenv('AUTHORIZATION_BASE_URL')
+TOKEN_URL = os.getenv('TOKEN_URL')
+API_BASE_URL = os.getenv('API_BASE_URL')
+SENDINBLUE_API_KEY = os.getenv('SENDINBLUE_API_KEY')  # Your Sendinblue API key
 ########################################################################################
 @api.route('/')
 def home():
@@ -124,6 +125,50 @@ def callback():
 
     return redirect('http://localhost:3000')
 
+@app.route('/api/create_meeting', methods=['POST'])
+@cross_origin(origins='http://localhost:5173', supports_credentials=True)
+def create_meeting():
+    auth_header = request.headers.get('Authorization')
+    if not auth_header:
+        logging.error("Authorization header is missing")
+        return jsonify({'error': 'Authorization header is missing'}), 401
+
+    access_token = auth_header.split(' ')[1]
+    logging.debug(f"Access token received: {access_token}")
+
+    data = request.json
+    logging.debug(f"Meeting creation request data: {data}")
+
+    topic = data.get('topic', 'New Meeting')
+    start_time = data.get('start_time')
+    duration = data.get('duration', 30)
+
+    payload = {
+        'topic': topic,
+        'type': 2,
+        'duration': duration,
+        'timezone': 'UTC',
+        'start_time': start_time
+    }
+    headers = {
+        'Authorization': f'Bearer {access_token}',
+        'Content-Type': 'application/json'
+    }
+
+    logging.debug(f"Meeting creation payload: {payload}")
+    logging.debug(f"Meeting creation headers: {headers}")
+
+    try:
+        response = requests.post('https://api.zoom.us/v2/users/me/meetings', json=payload, headers=headers)
+        response.raise_for_status()
+        logging.info("Meeting created successfully")
+        return jsonify(response.json())
+    except requests.RequestException as e:
+        logging.error(f"Failed to create meeting: {str(e)}")
+        if response.status_code == 401:
+            logging.error(f"Unauthorized access. Ensure your access token is correct and not expired.")
+        return jsonify({'error': 'Failed to create meeting', 'details': str(e)}), 500
+
 @app.route('/get_zoom_token', methods=['POST'])
 @cross_origin(origins='http://localhost:5173', supports_credentials=True)
 def get_zoom_token():
@@ -214,12 +259,12 @@ def webhook():
 
     return jsonify({'status': 'success'})
 
+# Function to generate random strings
 def generate_random_string(length=12):
     letters = string.ascii_letters + string.digits
     return ''.join(random.choice(letters) for i in range(length))
 
 @app.route('/api/schedule_meeting', methods=['POST'])
-@cross_origin(origins='http://localhost:5173', supports_credentials=True)
 def schedule_meeting():
     data = request.json
     date = data.get('date')
@@ -258,21 +303,16 @@ def schedule_meeting():
     return jsonify({'message': 'Meeting scheduled successfully', 'meeting_url': meeting_url})
 
 @app.route('/api/appointments', methods=['GET'])
-@cross_origin(origins='http://localhost:5173', supports_credentials=True)
 def list_appointments():
-    user_email = request.args.get('email')
-    user_appointments = [a for a in appointments if a['user_email'] == user_email]
-    return jsonify({'appointments': user_appointments})
+    return jsonify({'appointments': appointments})
 
 @app.route('/api/appointments/<appointment_id>', methods=['DELETE'])
-@cross_origin(origins='http://localhost:5173', supports_credentials=True)
 def delete_appointment(appointment_id):
     global appointments
     appointments = [a for a in appointments if a['id'] != appointment_id]
     return jsonify({'message': 'Appointment deleted successfully'})
 
 @app.route('/api/appointments/<appointment_id>', methods=['PUT'])
-@cross_origin(origins='http://localhost:5173', supports_credentials=True)
 def update_appointment(appointment_id):
     data = request.json
     for appointment in appointments:
@@ -310,13 +350,3 @@ def send_email(to_email, subject, body):
         pprint(api_response)
     except ApiException as e:
         print(f"Failed to send email to {to_email}: {e}")
-
-@app.route('/api/doctor_appointments', methods=['GET'])
-@cross_origin(origins='http://localhost:5173', supports_credentials=True)
-def list_doctor_appointments():
-    doctor_email = request.args.get('email')
-    if not doctor_email:
-        return jsonify({'error': 'Doctor email is missing'}), 400
-
-    appointments = Appointment.query.filter(Appointment.doctor.in_(['doctor1', 'doctor2'])).all()
-    return jsonify({'appointments': [appointment.to_dict() for appointment in appointments]})

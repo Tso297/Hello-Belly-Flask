@@ -1,5 +1,5 @@
 from flask_sqlalchemy import SQLAlchemy
-from sqlalchemy import Column, String, LargeBinary, DateTime
+from sqlalchemy import Column, String, LargeBinary, DateTime, ForeignKey
 from datetime import datetime
 from app import db
 
@@ -24,6 +24,7 @@ class User(db.Model):
     id = db.Column(db.String(255), primary_key=True)
     email = db.Column(db.String(255), unique=True, nullable=False)
     appointments = db.relationship('Appointment', backref='user', lazy=True)
+
 class Appointment(db.Model):
     id = db.Column(db.String(255), primary_key=True)
     date = db.Column(db.DateTime, nullable=False)
