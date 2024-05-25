@@ -1,7 +1,7 @@
 import os
 from flask import Blueprint, request, jsonify, redirect, make_response
 from app import app, db
-from app.models import UserSession, User, Appointment
+from app.models import User, Appointment, Doctor, TimeSlot
 import logging, time, jwt, requests, base64, hashlib, hmac, random, string
 from . import api
 from datetime import datetime, timedelta
@@ -13,6 +13,7 @@ import sib_api_v3_sdk
 from sib_api_v3_sdk.rest import ApiException
 from pprint import pprint
 from dotenv import load_dotenv
+import pytz
 
 load_dotenv()
 
@@ -32,232 +33,58 @@ TOKEN_URL = os.getenv('TOKEN_URL')
 API_BASE_URL = os.getenv('API_BASE_URL')
 SENDINBLUE_API_KEY = os.getenv('SENDINBLUE_API_KEY')  # Your Sendinblue API key
 ########################################################################################
+
+
+
+def generate_time_slots_for_year(doctor_id):
+    slots = []
+    current_date = datetime.now()
+    end_date = current_date + timedelta(days=365)
+    
+    while current_date < end_date:
+        start_time = datetime(current_date.year, current_date.month, current_date.day, 9, 0)
+        end_time = datetime(current_date.year, current_date.month, current_date.day, 17, 0)
+        
+        while start_time < end_time:
+            slots.append(TimeSlot(doctor_id=doctor_id, start_time=start_time))
+            start_time += timedelta(minutes=30)
+        
+        current_date += timedelta(days=1)
+    
+    db.session.bulk_save_objects(slots)
+    db.session.commit()
+
+def generate_full_day_slots(date):
+    """Generate all possible slots for a given date from 9:00 AM to 5:00 PM."""
+    start_time = datetime.combine(date, datetime.min.time()) + timedelta(hours=9)
+    end_time = datetime.combine(date, datetime.min.time()) + timedelta(hours=17)
+    slots = []
+    while start_time < end_time:
+        slots.append(start_time)
+        start_time += timedelta(minutes=30)
+    return slots
+
+
+
+def get_taken_slots(doctor_id, date):
+    start_day = datetime.combine(date, datetime.min.time())
+    end_day = start_day + timedelta(days=1)
+    taken_slots = Appointment.query.filter(
+        Appointment.doctor_id == doctor_id,
+        Appointment.date >= start_day,
+        Appointment.date < end_day
+    ).all()
+    return [appointment.date for appointment in taken_slots]
+
 @api.route('/')
 def home():
     app.logger.info('Home route accessed')
     return 'Welcome to the Zoom Integration'
 
-def generate_jwt_token():
-    try:
-        payload = {
-            'iss': CLIENT_ID,  # Your Zoom API Key
-            'exp': int(time.time()) + 3600
-        }
-        logging.debug(f"JWT Payload: {payload}")
-        token = jwt.encode(payload, CLIENT_SECRET, algorithm='HS256')  # Your Zoom API Secret
-        logging.debug(f"Generated JWT Token: {token}")
-
-        # Decode the token to verify its content
-        decoded = jwt.decode(token, CLIENT_SECRET, algorithms=['HS256'])
-        logging.debug(f"Decoded JWT Token: {decoded}")
-
-        return token
-    except Exception as e:
-        logging.error(f"Error generating JWT token: {str(e)}")
-        raise e
-
-# Decode the token for verification
-token = generate_jwt_token()
-decoded = jwt.decode(token, CLIENT_SECRET, algorithms=['HS256'])
-print(decoded)
-
 def encode_credentials(client_id, client_secret):
     credentials = f"{client_id}:{client_secret}"
     base64_credentials = base64.b64encode(credentials.encode('utf-8')).decode('utf-8')
     return base64_credentials
-
-@app.route('/login')
-def login():
-    zoom_authorize_url = f"https://zoom.us/oauth/authorize?response_type=code&client_id={CLIENT_ID}&redirect_uri={REDIRECT_URI}"
-    logging.info(f"Redirecting to Zoom authorization URL: {zoom_authorize_url}")
-    return redirect(zoom_authorize_url)
-
-@app.route('/authorize_zoom')
-def authorize_zoom():
-    zoom_authorize_url = f"https://zoom.us/oauth/authorize?response_type=code&client_id={CLIENT_ID}&redirect_uri={REDIRECT_URI}"
-    return redirect(zoom_authorize_url)
-
-@app.route('/api/callback', methods=['GET'])
-def callback():
-    code = request.args.get('code')
-    logging.debug(f"Received authorization code: {code}")
-
-    if not code:
-        logging.error("Authorization code is missing")
-        return jsonify({'error': 'Authorization code is missing'}), 400
-
-    payload = {
-        'grant_type': 'authorization_code',
-        'code': code,
-        'redirect_uri': REDIRECT_URI,
-        'client_id': CLIENT_ID,
-        'client_secret': CLIENT_SECRET
-    }
-    headers = {
-        'Content-Type': 'application/x-www-form-urlencoded'
-    }
-
-    try:
-        response = requests.post(TOKEN_URL, data=payload, headers=headers)
-        response.raise_for_status()
-        response_data = response.json()
-    except requests.RequestException as e:
-        logging.error(f"Failed to get token from Zoom: {str(e)}")
-        return jsonify({'error': 'Failed to get token from Zoom', 'details': str(e)}), 500
-
-    access_token = response_data.get('access_token')
-    refresh_token = response_data.get('refresh_token')
-    expires_in = response_data.get('expires_in')
-
-    logging.debug(f"Access token content: {access_token}")
-
-    user_session = UserSession.query.filter_by(id='default_user').first()
-    if not user_session:
-        user_session = UserSession(id='default_user')
-        db.session.add(user_session)
-
-    user_session.access_token = access_token
-    user_session.refresh_token = refresh_token
-    user_session.expiry = datetime.utcnow() + timedelta(seconds=expires_in)
-    db.session.commit()
-
-    logging.info(f"Zoom authorization successful. Tokens saved for user: {user_session.id}")
-
-    return redirect('http://localhost:3000')
-
-@app.route('/api/create_meeting', methods=['POST'])
-@cross_origin(origins='http://localhost:5173', supports_credentials=True)
-def create_meeting():
-    auth_header = request.headers.get('Authorization')
-    if not auth_header:
-        logging.error("Authorization header is missing")
-        return jsonify({'error': 'Authorization header is missing'}), 401
-
-    access_token = auth_header.split(' ')[1]
-    logging.debug(f"Access token received: {access_token}")
-
-    data = request.json
-    logging.debug(f"Meeting creation request data: {data}")
-
-    topic = data.get('topic', 'New Meeting')
-    start_time = data.get('start_time')
-    duration = data.get('duration', 30)
-
-    payload = {
-        'topic': topic,
-        'type': 2,
-        'duration': duration,
-        'timezone': 'UTC',
-        'start_time': start_time
-    }
-    headers = {
-        'Authorization': f'Bearer {access_token}',
-        'Content-Type': 'application/json'
-    }
-
-    logging.debug(f"Meeting creation payload: {payload}")
-    logging.debug(f"Meeting creation headers: {headers}")
-
-    try:
-        response = requests.post('https://api.zoom.us/v2/users/me/meetings', json=payload, headers=headers)
-        response.raise_for_status()
-        logging.info("Meeting created successfully")
-        return jsonify(response.json())
-    except requests.RequestException as e:
-        logging.error(f"Failed to create meeting: {str(e)}")
-        if response.status_code == 401:
-            logging.error(f"Unauthorized access. Ensure your access token is correct and not expired.")
-        return jsonify({'error': 'Failed to create meeting', 'details': str(e)}), 500
-
-@app.route('/get_zoom_token', methods=['POST'])
-@cross_origin(origins='http://localhost:5173', supports_credentials=True)
-def get_zoom_token():
-    user_session = UserSession.query.filter_by(id='default_user').first()
-    if user_session and user_session.access_token:
-        return jsonify({'access_token': user_session.access_token})
-    else:
-        return jsonify({'error': 'User session not found or access token missing'}), 401
-
-
-@app.route('/api/profile')
-def profile():
-    app.logger.info('Profile route accessed')
-    user_session = UserSession.query.filter_by(id='default_user').first()
-    if not user_session or not user_session.access_token:
-        app.logger.warning('Unauthorized access to profile route')
-        return jsonify({'error': 'Unauthorized'}), 401
-    
-    headers = {'Authorization': f'Bearer {user_session.access_token}'}
-    response = requests.get('https://api.zoom.us/v2/users/me', headers=headers)
-    if response.status_code != 200:
-        app.logger.error('Error fetching profile: %s - %s', response.status_code, response.text)
-        return jsonify({'error': 'Failed to fetch profile from Zoom'}), response.status_code
-    
-    return jsonify(response.json())
-
-def refresh_zoom_token(user_session):
-    payload = {
-        'grant_type': 'refresh_token',
-        'refresh_token': user_session.refresh_token,
-        'client_id': CLIENT_ID,
-        'client_secret': CLIENT_SECRET
-    }
-    headers = {
-        'Content-Type': 'application/x-www-form-urlencoded'
-    }
-
-    app.logger.info("Refreshing Zoom access token")
-    app.logger.debug(f"Payload: {payload}")
-    app.logger.debug(f"Headers: {headers}")
-
-    try:
-        response = requests.post(TOKEN_URL, data=payload, headers=headers)
-        response.raise_for_status()
-        app.logger.info("Token refresh successful")
-    except requests.RequestException as e:
-        app.logger.error(f"Failed to refresh Zoom token: {str(e)}")
-        raise Exception('Failed to refresh Zoom token')
-
-    response_data = response.json()
-    access_token = response_data.get('access_token')
-    expires_in = response_data.get('expires_in')
-    refresh_token = response_data.get('refresh_token')
-
-    app.logger.info(f"New access token received: {access_token}")
-    app.logger.info(f"Token expires in: {expires_in} seconds")
-
-    user_session.access_token = access_token
-    user_session.refresh_token = refresh_token
-    user_session.expiry = datetime.utcnow() + timedelta(seconds=expires_in)
-    db.session.commit()
-
-    return access_token
-
-
-
-
-@app.route('/')
-def index():
-    app.logger.info('Index route accessed')
-    return redirect(REDIRECT_URI)
-
-@api.route('/webhook', methods=['POST'])
-@cross_origin()
-def webhook():
-    zoom_signature = request.headers.get('x-zm-signature')
-    request_body = request.get_data()
-    
-    # Verify the signature
-    computed_signature = hmac.new(SECRET_TOKEN.encode(), request_body, hashlib.sha256).hexdigest()
-    if not hmac.compare_digest(computed_signature, zoom_signature):
-        app.logger.error('Invalid signature on webhook request')
-        return jsonify({'error': 'Invalid signature'}), 400
-
-    event_data = request.json
-    # Handle the event data
-    app.logger.info('Webhook event data: %s', event_data)
-
-    return jsonify({'status': 'success'})
 
 # Function to generate random strings
 def generate_random_string(length=12):
@@ -265,15 +92,30 @@ def generate_random_string(length=12):
     return ''.join(random.choice(letters) for i in range(length))
 
 @app.route('/api/schedule_meeting', methods=['POST'])
+@cross_origin(origins='http://localhost:5173', supports_credentials=True)
 def schedule_meeting():
     data = request.json
-    date = data.get('date')
+    date_str = data.get('date')
     purpose = data.get('purpose')
-    doctor_key = data.get('doctor')
+    doctor_id = data.get('doctor')
     user_email = data.get('email')
+    user_name = data.get('name')
 
-    if not all([date, purpose, doctor_key, user_email]):
+    app.logger.debug(f"Received data: {data}")
+
+    if not all([date_str, purpose, doctor_id, user_email, user_name]):
+        app.logger.error('Missing data in schedule_meeting request')
         return jsonify({'error': 'Missing data'}), 400
+
+    # Parse the date and subtract 4 hours
+    date = datetime.fromisoformat(date_str) - timedelta(hours=4)
+    app.logger.debug(f"Parsed date (adjusted): {date}")
+
+    # Check if the slot is available
+    existing_appointment = Appointment.query.filter_by(doctor_id=doctor_id, date=date).first()
+    if existing_appointment:
+        app.logger.error("Time slot is already booked")
+        return jsonify({'error': 'Time slot is already booked'}), 400
 
     meeting_id = generate_random_string()
     meeting_password = generate_random_string(8)
@@ -281,54 +123,178 @@ def schedule_meeting():
     moderator_url = f"https://meet.jit.si/{meeting_id}#config.password={meeting_password}"
 
     subject = f"Meeting Scheduled: {purpose}"
-    body = f"Meeting Details:\n\nPurpose: {purpose}\nDate and Time: {date}\nMeeting URL: {meeting_url}\n\nPlease join the meeting at the specified time."
 
-    moderator_body = f"Meeting Details:\n\nPurpose: {purpose}\nDate and Time: {date}\nMeeting URL: {meeting_url}\nModerator URL: {moderator_url}\nMeeting Password: {meeting_password}\n\nPlease join the meeting at the specified time."
+    user = User.query.filter_by(email=user_email).first()
+    if not user:
+        user = User(id=generate_random_string(), email=user_email, name=user_name)
+        db.session.add(user)
+        db.session.commit()
+    else:
+        user.name = user_name  # Update the name if it already exists
 
-    appointment = {
-        "id": meeting_id,
-        "date": date,
-        "purpose": purpose,
-        "doctor": doctor_key,
-        "user_email": user_email,
-        "meeting_url": meeting_url,
-        "moderator_url": moderator_url,
-        "meeting_password": meeting_password
-    }
-    appointments.append(appointment)
+    doctor = Doctor.query.filter_by(id=doctor_id).first()
+    if not doctor:
+        app.logger.error("Doctor not found")
+        return jsonify({'error': 'Doctor not found'}), 404
 
-    send_email(DOCTOR_EMAIL, subject, moderator_body)
+    appointment = Appointment(
+        id=meeting_id,
+        date=date,
+        purpose=purpose,
+        doctor_id=doctor.id,
+        user_id=user.id,
+        meeting_url=meeting_url,
+        moderator_url=moderator_url,
+        meeting_password=meeting_password
+    )
+    db.session.add(appointment)
+    db.session.commit()
+
+    body = f"""
+    Meeting Details:
+    Purpose: {purpose}
+    Date and Time: {date}
+    Meeting URL: {meeting_url}
+    
+    Please join the meeting at the specified time.
+    """
+
+    moderator_body = f"""
+    Meeting Details:
+    Purpose: {purpose}
+    Date and Time: {date}
+    Meeting URL: {meeting_url}
+    Moderator URL: {moderator_url}
+    Meeting Password: {meeting_password}
+    
+    Please join the meeting at the specified time.
+    """
+
+    app.logger.info(f"Meeting scheduled successfully: {appointment.to_dict()}")
+
+    send_email(doctor.email, subject, moderator_body)
     send_email(user_email, subject, body)
 
-    return jsonify({'message': 'Meeting scheduled successfully', 'meeting_url': meeting_url})
+    return jsonify({'message': 'Meeting scheduled successfully', 'appointment': appointment.to_dict()})
+
 
 @app.route('/api/appointments', methods=['GET'])
+@cross_origin(origins='http://localhost:5173', supports_credentials=True)
 def list_appointments():
-    return jsonify({'appointments': appointments})
+    user_email = request.args.get('email')
+    if not user_email:
+        app.logger.error('Missing user email in request')
+        return jsonify({'error': 'Missing user email'}), 400
+
+    user = User.query.filter_by(email=user_email).first()
+    if not user:
+        app.logger.warning(f'User with email {user_email} not found')
+        return jsonify({'appointments': []})
+
+    appointments = Appointment.query.filter_by(user_id=user.id).all()
+    app.logger.info(f"Appointments retrieved for user {user_email}: {[a.to_dict() for a in appointments]}")
+    return jsonify({'appointments': [a.to_dict() for a in appointments]})
+
+    appointments = Appointment.query.filter_by(user_id=user.id).all()
+    app.logger.info(f"Appointments retrieved for user {user_email}: {[a.to_dict() for a in appointments]}")
+    return jsonify({'appointments': [a.to_dict() for a in appointments]})
+
+@app.route('/api/appointments', methods=['POST'])
+@cross_origin()
+def schedule_appointment():
+    data = request.json
+    doctor_id = data['doctor_id']
+    user_id = data['user_id']
+    date = datetime.fromisoformat(data['date'])
+    purpose = data['purpose']
+    meeting_url = data['meeting_url']
+    moderator_url = data['moderator_url']
+    meeting_password = data['meeting_password']
+
+    # Find the corresponding time slot
+    time_slot = TimeSlot.query.filter_by(doctor_id=doctor_id, start_time=date, is_available=True).first()
+    
+    if not time_slot:
+        return jsonify({'error': 'Time slot is not available'}), 400
+
+    # Create the appointment
+    appointment = Appointment(
+        id=data['id'],
+        date=date,
+        purpose=purpose,
+        doctor_id=doctor_id,
+        user_id=user_id,
+        meeting_url=meeting_url,
+        moderator_url=moderator_url,
+        meeting_password=meeting_password
+    )
+
+    db.session.add(appointment)
+    
+    # Update the time slot to be unavailable
+    time_slot.is_available = False
+    time_slot.appointment_id = appointment.id
+    
+    db.session.commit()
+
+    return jsonify(appointment.to_dict()), 201
 
 @app.route('/api/appointments/<appointment_id>', methods=['DELETE'])
-def delete_appointment(appointment_id):
-    global appointments
-    appointments = [a for a in appointments if a['id'] != appointment_id]
-    return jsonify({'message': 'Appointment deleted successfully'})
+@cross_origin()
+def cancel_appointment(appointment_id):
+    appointment = Appointment.query.get(appointment_id)
+    
+    if not appointment:
+        return jsonify({'error': 'Appointment not found'}), 404
+    
+    # Find the corresponding time slot and make it available
+    time_slot = TimeSlot.query.filter_by(appointment_id=appointment_id).first()
+    if time_slot:
+        time_slot.is_available = True
+        time_slot.appointment_id = None
+
+    db.session.delete(appointment)
+    db.session.commit()
+
+    return jsonify({'message': 'Appointment canceled successfully'}), 200
 
 @app.route('/api/appointments/<appointment_id>', methods=['PUT'])
-def update_appointment(appointment_id):
+@cross_origin()
+def reschedule_appointment(appointment_id):
     data = request.json
-    for appointment in appointments:
-        if appointment['id'] == appointment_id:
-            appointment['date'] = data.get('date', appointment['date'])
-            appointment['purpose'] = data.get('purpose', appointment['purpose'])
-            appointment['doctor'] = data.get('doctor', appointment['doctor'])
-            appointment['user_email'] = data.get('email', appointment['user_email'])
+    new_date = datetime.fromisoformat(data['date'])
 
-            subject = f"Updated Meeting: {appointment['purpose']}"
-            body = f"Updated Meeting Details:\n\nPurpose: {appointment['purpose']}\nDate and Time: {appointment['date']}\nMeeting URL: {appointment['meeting_url']}\n\nPlease join the meeting at the specified time."
-            send_email(DOCTOR_EMAIL, subject, body)
-            send_email(appointment['user_email'], subject, body)
+    appointment = Appointment.query.get(appointment_id)
+    
+    if not appointment:
+        return jsonify({'error': 'Appointment not found'}), 404
+    
+    # Find the new time slot
+    new_time_slot = TimeSlot.query.filter_by(doctor_id=appointment.doctor_id, start_time=new_date, is_available=True).first()
+    
+    if not new_time_slot:
+        return jsonify({'error': 'New time slot is not available'}), 400
+    
+    # Make the old time slot available
+    old_time_slot = TimeSlot.query.filter_by(appointment_id=appointment_id).first()
+    if old_time_slot:
+        old_time_slot.is_available = True
+        old_time_slot.appointment_id = None
+    
+    # Update the appointment
+    appointment.date = new_date
+    appointment.meeting_url = data['meeting_url']
+    appointment.moderator_url = data['moderator_url']
+    appointment.meeting_password = data['meeting_password']
 
-            return jsonify({'message': 'Appointment updated successfully'})
-    return jsonify({'error': 'Appointment not found'}), 404
+    # Reserve the new time slot
+    new_time_slot.is_available = False
+    new_time_slot.appointment_id = appointment.id
+
+    db.session.commit()
+
+    return jsonify(appointment.to_dict()), 200
+
 
 def send_email(to_email, subject, body):
     configuration = sib_api_v3_sdk.Configuration()
@@ -350,3 +316,176 @@ def send_email(to_email, subject, body):
         pprint(api_response)
     except ApiException as e:
         print(f"Failed to send email to {to_email}: {e}")
+
+@app.route('/api/doctors', methods=['POST'])
+@cross_origin(origins='http://localhost:5173', supports_credentials=True)
+def create_doctor():
+    data = request.json
+    name = data.get('name')
+    email = data.get('email')
+
+    if not all([name, email]):
+        app.logger.error('Missing data in request')
+        return jsonify({'error': 'Missing data'}), 400
+
+    doctor = Doctor(id=generate_random_string(), name=name, email=email)
+    db.session.add(doctor)
+    db.session.commit()
+
+    # Generate time slots for the new doctor
+    generate_time_slots_for_year(doctor.id)
+
+    app.logger.info(f"Doctor created successfully: {doctor}")
+    return jsonify({'message': 'Doctor created successfully', 'doctor': {'id': doctor.id, 'name': doctor.name, 'email': doctor.email}}), 201
+
+@app.route('/api/admin/doctors', methods=['GET'])
+@cross_origin(origins='http://localhost:5173', supports_credentials=True)
+def admin_list_doctors():
+    doctors = Doctor.query.all()
+    app.logger.info(f"Doctors retrieved: {[doctor.name for doctor in doctors]}")
+    return jsonify({'doctors': [{'id': doctor.id, 'name': doctor.name, 'email': doctor.email} for doctor in doctors]})
+
+@app.route('/api/admin/doctors', methods=['POST'])
+@cross_origin(origins='http://localhost:5173', supports_credentials=True)
+def admin_create_doctor():
+    data = request.json
+    admin_email = request.args.get('admin_email')
+
+    if admin_email != 'torcsh30@gmail.com':
+        app.logger.error('Unauthorized access attempt')
+        return jsonify({'error': 'Unauthorized access'}), 403
+
+    name = data.get('name')
+    email = data.get('email')
+
+    if not all([name, email]):
+        app.logger.error('Missing data in request')
+        return jsonify({'error': 'Missing data'}), 400
+
+    doctor = Doctor(id=generate_random_string(), name=name, email=email)
+    db.session.add(doctor)
+    db.session.commit()
+
+    app.logger.info(f"Doctor created successfully: {doctor}")
+    return jsonify({'message': 'Doctor created successfully', 'doctor': {'id': doctor.id, 'name': doctor.name, 'email': doctor.email}}), 201
+
+@app.route('/api/doctors', methods=['GET'])
+@cross_origin(origins='http://localhost:5173', supports_credentials=True)
+def list_doctors():
+    doctors = Doctor.query.all()
+    app.logger.info(f"Doctors retrieved: {[doctor.name for doctor in doctors]}")
+    return jsonify({'doctors': [{'id': doctor.id, 'name': doctor.name, 'email': doctor.email} for doctor in doctors]})
+
+@app.route('/api/is_doctor', methods=['GET'])
+@cross_origin(origins='http://localhost:5173', supports_credentials=True)
+def is_doctor():
+    user_email = request.args.get('email')
+    if not user_email:
+        app.logger.error('Missing user email in request')
+        return jsonify({'error': 'Missing user email'}), 400
+
+    doctor = Doctor.query.filter_by(email=user_email).first()
+    is_doctor = doctor is not None
+
+    app.logger.info(f"Checked if user is a doctor: {user_email}, is_doctor: {is_doctor}")
+    return jsonify({'is_doctor': is_doctor})
+
+@cross_origin(origins='http://localhost:5173', supports_credentials=True)
+def available_slots():
+    doctor_id = request.args.get('doctor_id')
+    date_str = request.args.get('date')
+
+    # Parse the date without converting time zones
+    date = datetime.strptime(date_str, "%Y-%m-%d")
+
+    # Generate full day slots
+    full_day_slots = generate_full_day_slots(date)
+
+    # Get taken slots and adjust by subtracting 4 hours
+    taken_slots = [slot.date for slot in get_taken_slots(doctor_id, date)]
+    adjusted_taken_slots = [slot - timedelta(hours=4) for slot in taken_slots]
+
+    # Remove taken slots from full day slots
+    available_slots = [slot.isoformat() for slot in full_day_slots if slot not in adjusted_taken_slots]
+
+    return jsonify({'available_slots': available_slots})
+
+@app.route('/api/doctor_appointments', methods=['GET'])
+@cross_origin(origins='http://localhost:5173', supports_credentials=True)
+def doctor_appointments():
+    doctor_id = request.args.get('doctor_id')
+    app.logger.info(f"Received doctor_appointments request for doctor_id: {doctor_id}")
+    if not doctor_id:
+        app.logger.error("Missing doctor_id in doctor_appointments request")
+        return jsonify({'error': 'Missing doctor_id'}), 400
+
+    appointments = Appointment.query.filter_by(doctor_id=doctor_id).all()
+    app.logger.info(f"Fetched appointments: {appointments}")
+    return jsonify({'appointments': [appointment.to_dict() for appointment in appointments]})
+
+
+@app.route('/api/doctor_by_email', methods=['GET'])
+@cross_origin(origins='http://localhost:5173', supports_credentials=True)
+def get_doctor_by_email():
+    email = request.args.get('email')
+    app.logger.info(f"Received get_doctor_by_email request for email: {email}")
+    if not email:
+        app.logger.error("Missing email in get_doctor_by_email request")
+        return jsonify({'error': 'Missing email'}), 400
+
+    doctor = Doctor.query.filter_by(email=email).first()
+    if not doctor:
+        app.logger.error("Doctor not found")
+        return jsonify({'error': 'Doctor not found'}), 404
+
+    app.logger.info(f"Fetched doctor: {doctor}")
+    return jsonify({'id': doctor.id, 'name': doctor.name, 'email': doctor.email})
+
+
+
+@app.route('/api/available_slots', methods=['GET'])
+@cross_origin(origins='http://localhost:5173', supports_credentials=True)
+def get_available_slots():
+    doctor_id = request.args.get('doctor_id')
+    date_str = request.args.get('date')
+
+    if not all([doctor_id, date_str]):
+        app.logger.error('Missing data in available_slots request')
+        return jsonify({'error': 'Missing data'}), 400
+
+    date = datetime.fromisoformat(date_str)
+    start_time = date.replace(hour=9, minute=0, second=0, microsecond=0)
+    end_time = date.replace(hour=17, minute=0, second=0, microsecond=0)
+    all_slots = [start_time + timedelta(minutes=30 * i) for i in range(17)]
+
+    taken_slots = Appointment.query.filter_by(doctor_id=doctor_id).filter(
+        Appointment.date.between(start_time, end_time)
+    ).all()
+
+    taken_slots = [appointment.date for appointment in taken_slots]
+    available_slots = [slot for slot in all_slots if slot not in taken_slots]
+
+    app.logger.debug(f"Full Day Slots: {all_slots}")
+    app.logger.debug(f"Taken Slots: {taken_slots}")
+    app.logger.debug(f"Available Slots: {available_slots}")
+
+    return jsonify({'available_slots': [slot.isoformat() for slot in available_slots]})
+
+@app.route('/api/unavailable_slots', methods=['GET'])
+def get_unavailable_slots():
+    doctor_id = request.args.get('doctor_id')
+    slots = UnavailableSlot.query.filter_by(doctor_id=doctor_id).all()
+    app.logger.debug(f"Unavailable Slots: {slots}")
+    return jsonify({'unavailable_slots': [slot.to_dict() for slot in slots]})
+
+# New route to mark a slot as unavailable
+@app.route('/api/unavailable_slots', methods=['POST'])
+def mark_unavailable_slot():
+    data = request.json
+    doctor_id = data.get('doctor_id')
+    date_str = data.get('date')
+    date = datetime.fromisoformat(date_str)
+    slot = UnavailableSlot(doctor_id=doctor_id, date=date)
+    db.session.add(slot)
+    db.session.commit()
+    return jsonify({'slot': slot.to_dict()}), 201
