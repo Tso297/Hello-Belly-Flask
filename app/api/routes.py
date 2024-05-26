@@ -101,7 +101,7 @@ def generate_random_string(length=12):
     return ''.join(random.choice(letters) for i in range(length))
 
 @app.route('/api/schedule_meeting', methods=['POST'])
-@cross_origin(origins='http://localhost:5173', supports_credentials=True)
+@cross_origin(origins=['http://localhost:5173', 'https://hello-belly-22577.web.app'], supports_credentials=True)
 def schedule_meeting():
     data = request.json
     date_str = data.get('date')
@@ -188,7 +188,7 @@ def schedule_meeting():
 
 
 @app.route('/api/appointments', methods=['GET'])
-@cross_origin(origins='http://localhost:5173', supports_credentials=True)
+@cross_origin(origins=['http://localhost:5173', 'https://hello-belly-22577.web.app'], supports_credentials=True)
 def list_appointments():
     user_email = request.args.get('email')
     if not user_email:
@@ -205,7 +205,7 @@ def list_appointments():
     return jsonify({'appointments': [a.to_dict() for a in appointments]})
 
 @app.route('/api/appointments', methods=['POST'])
-@cross_origin(origins='http://localhost:5173', supports_credentials=True)
+@cross_origin(origins=['http://localhost:5173', 'https://hello-belly-22577.web.app'], supports_credentials=True)
 def schedule_appointment():
     data = request.json
     doctor_id = data['doctor_id']
@@ -240,7 +240,7 @@ def schedule_appointment():
     return jsonify(appointment.to_dict()), 201
 
 @app.route('/api/appointments/<appointment_id>', methods=['DELETE'])
-@cross_origin(origins='http://localhost:5173', supports_credentials=True)
+@cross_origin(origins=['http://localhost:5173', 'https://hello-belly-22577.web.app'], supports_credentials=True)
 def cancel_appointment(appointment_id):
     appointment = Appointment.query.get(appointment_id)
     
@@ -259,7 +259,7 @@ def cancel_appointment(appointment_id):
 
 
 @app.route('/api/appointments/<appointment_id>', methods=['PUT'])
-@cross_origin(origins='http://localhost:5173', supports_credentials=True)
+@cross_origin(origins=['http://localhost:5173', 'https://hello-belly-22577.web.app'], supports_credentials=True)
 def reschedule_appointment(appointment_id):
     data = request.json
     new_date = data.get('date')
@@ -318,7 +318,7 @@ def send_email(to_email, subject, body):
         print(f"Failed to send email to {to_email}: {e}")
 
 @app.route('/api/doctors', methods=['POST'])
-@cross_origin(origins='http://localhost:5173', supports_credentials=True)
+@cross_origin(origins=['http://localhost:5173', 'https://hello-belly-22577.web.app'], supports_credentials=True)
 def create_doctor():
     data = request.json
     name = data.get('name')
@@ -336,14 +336,14 @@ def create_doctor():
     return jsonify({'message': 'Doctor created successfully', 'doctor': {'id': doctor.id, 'name': doctor.name, 'email': doctor.email}}), 201
 
 @app.route('/api/admin/doctors', methods=['GET'])
-@cross_origin(origins='http://localhost:5173', supports_credentials=True)
+@cross_origin(origins=['http://localhost:5173', 'https://hello-belly-22577.web.app'], supports_credentials=True)
 def admin_list_doctors():
     doctors = Doctor.query.all()
     app.logger.info(f"Doctors retrieved: {[doctor.name for doctor in doctors]}")
     return jsonify({'doctors': [{'id': doctor.id, 'name': doctor.name, 'email': doctor.email} for doctor in doctors]})
 
 @app.route('/api/admin/doctors', methods=['POST'])
-@cross_origin(origins='http://localhost:5173', supports_credentials=True)
+@cross_origin(origins=['http://localhost:5173', 'https://hello-belly-22577.web.app'], supports_credentials=True)
 def admin_create_doctor():
     data = request.json
     admin_email = request.args.get('admin_email')
@@ -367,14 +367,14 @@ def admin_create_doctor():
     return jsonify({'message': 'Doctor created successfully', 'doctor': {'id': doctor.id, 'name': doctor.name, 'email': doctor.email}}), 201
 
 @app.route('/api/doctors', methods=['GET'])
-@cross_origin(origins='http://localhost:5173', supports_credentials=True)
+@cross_origin(origins=['http://localhost:5173', 'https://hello-belly-22577.web.app'], supports_credentials=True)
 def list_doctors():
     doctors = Doctor.query.all()
     app.logger.info(f"Doctors retrieved: {[doctor.name for doctor in doctors]}")
     return jsonify({'doctors': [{'id': doctor.id, 'name': doctor.name, 'email': doctor.email} for doctor in doctors]})
 
 @app.route('/api/is_doctor', methods=['GET'])
-@cross_origin(origins='http://localhost:5173', supports_credentials=True)
+@cross_origin(origins=['http://localhost:5173', 'https://hello-belly-22577.web.app'], supports_credentials=True)
 def is_doctor():
     user_email = request.args.get('email')
     if not user_email:
@@ -388,7 +388,7 @@ def is_doctor():
     return jsonify({'is_doctor': is_doctor})
 
 @app.route('/api/available_slots', methods=['GET'])
-@cross_origin(origins='http://localhost:5173', supports_credentials=True)
+@cross_origin(origins=['http://localhost:5173', 'https://hello-belly-22577.web.app'], supports_credentials=True)
 def get_available_slots():
     doctor_id = request.args.get('doctor_id')
     date_str = request.args.get('date')
@@ -419,7 +419,7 @@ def get_available_slots():
 
 
 @app.route('/api/doctor_appointments', methods=['GET'])
-@cross_origin(origins='http://localhost:5173', supports_credentials=True)
+@cross_origin(origins=['http://localhost:5173', 'https://hello-belly-22577.web.app'], supports_credentials=True)
 def doctor_appointments():
     doctor_id = request.args.get('doctor_id')
     app.logger.info(f"Received doctor_appointments request for doctor_id: {doctor_id}")
@@ -433,7 +433,7 @@ def doctor_appointments():
 
 
 @app.route('/api/doctor_by_email', methods=['GET'])
-@cross_origin(origins='http://localhost:5173', supports_credentials=True)
+@cross_origin(origins=['http://localhost:5173', 'https://hello-belly-22577.web.app'], supports_credentials=True)
 def get_doctor_by_email():
     email = request.args.get('email')
     app.logger.info(f"Received get_doctor_by_email request for email: {email}")
