@@ -13,7 +13,6 @@ import sib_api_v3_sdk
 from sib_api_v3_sdk.rest import ApiException
 from pprint import pprint
 from dotenv import load_dotenv
-import pytz
 
 load_dotenv()
 
