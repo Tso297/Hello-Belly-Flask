@@ -18,13 +18,14 @@ class Doctor(db.Model):
 class Appointment(db.Model):
     id = db.Column(db.String(255), primary_key=True)
     date = db.Column(db.DateTime, nullable=False)
+    end_date = db.Column(db.DateTime, nullable=True)  # Make this nullable
     purpose = db.Column(db.String(255), nullable=False)
     doctor_id = db.Column(db.String(255), db.ForeignKey('doctor.id'), nullable=False)
     user_id = db.Column(db.String(255), db.ForeignKey('user.id'), nullable=False)
     meeting_url = db.Column(db.String(255), nullable=False)
     moderator_url = db.Column(db.String(255), nullable=False)
     meeting_password = db.Column(db.String(255), nullable=False)
-    time_slot = db.relationship('TimeSlot', backref='appointment', uselist=False)  # Added relationship
+    is_time_off = db.Column(db.Boolean, default=False)
 
     def to_dict(self):
         user = User.query.get(self.user_id)
@@ -32,6 +33,7 @@ class Appointment(db.Model):
         return {
             'id': self.id,
             'date': self.date.isoformat(),
+            'end_date': self.end_date.isoformat() if self.end_date else None,  # Include this
             'purpose': self.purpose,
             'doctor': {
                 'id': doctor.id,
@@ -46,6 +48,7 @@ class Appointment(db.Model):
             'meeting_url': self.meeting_url,
             'moderator_url': self.moderator_url,
             'meeting_password': self.meeting_password,
+            'is_time_off': self.is_time_off,
         }
 
 class TimeSlot(db.Model):

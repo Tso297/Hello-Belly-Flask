@@ -404,15 +404,25 @@ def get_available_slots():
     # Generate all slots from 9 AM to 5 PM, inclusive
     all_slots = [start_time + timedelta(minutes=30 * i) for i in range(17)]  # 9 AM to 5 PM inclusive
 
+    # Fetch all appointments and time-offs within the day range
     taken_slots = Appointment.query.filter_by(doctor_id=doctor_id).filter(
-        Appointment.date.between(start_time, end_time)
+        ((Appointment.date >= start_time) & (Appointment.date < end_time)) |
+        ((Appointment.end_date > start_time) & (Appointment.end_date <= end_time)) |
+        ((Appointment.date < start_time) & (Appointment.end_date > end_time))
     ).all()
 
-    taken_slots = [appointment.date for appointment in taken_slots]
-    available_slots = [slot for slot in all_slots if slot not in taken_slots]
+    taken_times = set()
+    for appointment in taken_slots:
+        current_time = appointment.date
+        end_time = appointment.end_date if appointment.end_date else current_time + timedelta(minutes=30)
+        while current_time < end_time:
+            taken_times.add(current_time)
+            current_time += timedelta(minutes=30)
+
+    available_slots = [slot for slot in all_slots if slot not in taken_times]
 
     app.logger.debug(f"Full Day Slots: {all_slots}")
-    app.logger.debug(f"Taken Slots: {taken_slots}")
+    app.logger.debug(f"Taken Slots: {taken_times}")
     app.logger.debug(f"Available Slots: {available_slots}")
 
     return jsonify({'available_slots': [slot.isoformat() for slot in available_slots]})
@@ -448,3 +458,78 @@ def get_doctor_by_email():
 
     app.logger.info(f"Fetched doctor: {doctor}")
     return jsonify({'id': doctor.id, 'name': doctor.name, 'email': doctor.email})
+
+@app.route('/api/request_time_off', methods=['POST'])
+@cross_origin(origins=['http://localhost:5173', 'https://hello-belly-22577.web.app'], supports_credentials=True)
+def request_time_off():
+    data = request.json
+    date_str = data.get('date')
+    end_date_str = data.get('end_date')
+    purpose = data.get('purpose')
+    doctor_id = data.get('doctor')
+    user_email = data.get('email')
+    user_name = data.get('name')
+
+    app.logger.debug(f"Received data: {data}")
+
+    if not all([date_str, end_date_str, purpose, doctor_id, user_email, user_name]):
+        app.logger.error('Missing data in request_time_off request')
+        return jsonify({'error': 'Missing data'}), 400
+
+    # Parse the dates and adjust for time zone if necessary
+    start_date = datetime.fromisoformat(date_str) - timedelta(hours=4)
+    end_date = datetime.fromisoformat(end_date_str) - timedelta(hours=4)
+    app.logger.debug(f"Parsed dates (adjusted): {start_date} to {end_date}")
+
+    # Find the doctor's user ID
+    doctor = Doctor.query.filter_by(id=doctor_id).first()
+    if not doctor:
+        app.logger.error(f"Doctor with ID {doctor_id} not found")
+        return jsonify({'error': 'Doctor not found'}), 404
+
+    user = User.query.filter_by(email=user_email).first()
+    if not user:
+        user = User(id=generate_random_string(), email=user_email, name=user_name)
+        db.session.add(user)
+        db.session.commit()
+    
+    user_id = user.id
+
+    # Check if the entire time range is available
+    existing_appointments = Appointment.query.filter_by(doctor_id=doctor_id).filter(
+        Appointment.date.between(start_date, end_date)
+    ).all()
+    if existing_appointments:
+        app.logger.error(f"Some time slots within the range are already booked")
+        return jsonify({'error': 'Some time slots within the range are already booked'}), 400
+
+    # Create a single appointment for the entire time-off block
+    appointment_id = generate_random_string()
+    appointment = Appointment(
+        id=appointment_id,
+        date=start_date,
+        end_date=end_date,  # Save the end date
+        purpose=purpose,
+        doctor_id=doctor_id,
+        user_id=user_id,  # Use the doctor's user ID
+        meeting_url='N/A',
+        moderator_url='N/A',
+        meeting_password='N/A',
+        is_time_off=True
+    )
+    db.session.add(appointment)
+    
+    # Mark the entire range of time slots as unavailable
+    current_time = start_date
+    while current_time < end_date:
+        time_slot = TimeSlot.query.filter_by(doctor_id=doctor_id, start_time=current_time).first()
+        if not time_slot:
+            time_slot = TimeSlot(doctor_id=doctor_id, start_time=current_time, is_available=False)
+            db.session.add(time_slot)
+        else:
+            time_slot.is_available = False
+        current_time += timedelta(minutes=30)
+
+    db.session.commit()
+
+    return jsonify({'message': 'Time off requested successfully'}), 201
