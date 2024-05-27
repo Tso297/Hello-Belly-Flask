@@ -38,6 +38,7 @@ def generate_timeslots_for_doctor(doctor_id):
 
     slots = []
     while start_time < end_time:
+        app.logger.debug(f"Generating time slot for {doctor_id} at {start_time}")
         slots.append(TimeSlot(
             doctor_id=doctor_id,
             start_time=start_time,
@@ -47,24 +48,7 @@ def generate_timeslots_for_doctor(doctor_id):
 
     db.session.bulk_save_objects(slots)
     db.session.commit()
-
-def generate_time_slots_for_year(doctor_id):
-    slots = []
-    current_date = datetime.now()
-    end_date = current_date + timedelta(days=365)
-    
-    while current_date < end_date:
-        start_time = datetime(current_date.year, current_date.month, current_date.day, 9, 0)
-        end_time = datetime(current_date.year, current_date.month, current_date.day, 17, 0)
-        
-        while start_time <= end_time:  # Include 9 AM and 5 PM
-            slots.append(TimeSlot(doctor_id=doctor_id, start_time=start_time, is_available=True))
-            start_time += timedelta(minutes=30)
-        
-        current_date += timedelta(days=1)
-    
-    db.session.bulk_save_objects(slots)
-    db.session.commit()
+    app.logger.info(f"Time slots generated for doctor {doctor_id}")
     
 def generate_full_day_slots(date):
     """Generate all possible slots for a given date from 9:00 AM to 5:00 PM."""
@@ -262,20 +246,34 @@ def cancel_appointment(appointment_id):
 @cross_origin(origins=['http://localhost:5173', 'https://hello-belly-22577.web.app'], supports_credentials=True)
 def reschedule_appointment(appointment_id):
     data = request.json
+    app.logger.debug(f"Received data for rescheduling: {data}")
     new_date = data.get('date')
 
     if not new_date:
+        app.logger.error("New date is required")
         return jsonify({'error': 'New date is required'}), 400
 
     appointment = Appointment.query.get(appointment_id)
     if not appointment:
+        app.logger.error(f"Appointment with ID {appointment_id} not found")
         return jsonify({'error': 'Appointment not found'}), 404
 
-    new_datetime = datetime.fromisoformat(new_date) - timedelta(hours=4)  # Adjust the date by subtracting 4 hours
+    try:
+        new_datetime = datetime.fromisoformat(new_date) - timedelta(hours=4)  # Adjust the date by subtracting 4 hours
+    except ValueError as e:
+        app.logger.error(f"Invalid date format: {e}")
+        return jsonify({'error': 'Invalid date format'}), 400
+
+    app.logger.debug(f"New datetime for rescheduling: {new_datetime}")
 
     # Check if the new time slot is available
     new_timeslot = TimeSlot.query.filter_by(doctor_id=appointment.doctor_id, start_time=new_datetime).first()
-    if not new_timeslot or not new_timeslot.is_available:
+    if not new_timeslot:
+        app.logger.error(f"New time slot not found for doctor_id {appointment.doctor_id} and start_time {new_datetime}")
+        return jsonify({'error': 'The new time slot is not available'}), 400
+
+    if not new_timeslot.is_available:
+        app.logger.error(f"The new time slot at {new_datetime} is not available")
         return jsonify({'error': 'The new time slot is not available'}), 400
 
     # Mark the old time slot as available
@@ -362,6 +360,8 @@ def admin_create_doctor():
     doctor = Doctor(id=generate_random_string(), name=name, email=email)
     db.session.add(doctor)
     db.session.commit()
+
+    generate_timeslots_for_doctor(doctor.id)  # Ensure this line is present
 
     app.logger.info(f"Doctor created successfully: {doctor}")
     return jsonify({'message': 'Doctor created successfully', 'doctor': {'id': doctor.id, 'name': doctor.name, 'email': doctor.email}}), 201
