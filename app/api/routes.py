@@ -497,7 +497,9 @@ def request_time_off():
 
     # Check if the entire time range is available
     existing_appointments = Appointment.query.filter_by(doctor_id=doctor_id).filter(
-        Appointment.date.between(start_date, end_date)
+        ((Appointment.date >= start_date) & (Appointment.date <= end_date)) |
+        ((Appointment.end_date > start_date) & (Appointment.end_date <= end_date)) |
+        ((Appointment.date < start_date) & (Appointment.end_date > end_date))
     ).all()
     if existing_appointments:
         app.logger.error(f"Some time slots within the range are already booked")
@@ -521,7 +523,7 @@ def request_time_off():
     
     # Mark the entire range of time slots as unavailable
     current_time = start_date
-    while current_time < end_date:
+    while current_time <= end_date:  # Include the end time
         time_slot = TimeSlot.query.filter_by(doctor_id=doctor_id, start_time=current_time).first()
         if not time_slot:
             time_slot = TimeSlot(doctor_id=doctor_id, start_time=current_time, is_available=False)
@@ -533,3 +535,62 @@ def request_time_off():
     db.session.commit()
 
     return jsonify({'message': 'Time off requested successfully'}), 201
+
+@app.route('/api/request_time_off/<appointment_id>', methods=['PUT'])
+@cross_origin(origins=['http://localhost:5173', 'https://hello-belly-22577.web.app'], supports_credentials=True)
+def reschedule_time_off(appointment_id):
+    data = request.json
+    new_start_date = data.get('date')
+    new_end_date = data.get('end_date')
+
+    if not new_start_date or not new_end_date:
+        app.logger.error("New start and end dates are required")
+        return jsonify({'error': 'New start and end dates are required'}), 400
+
+    appointment = Appointment.query.get(appointment_id)
+    if not appointment or not appointment.is_time_off:
+        app.logger.error(f"Time off with ID {appointment_id} not found")
+        return jsonify({'error': 'Time off not found'}), 404
+
+    try:
+        new_start_datetime = datetime.fromisoformat(new_start_date) - timedelta(hours=4)  # Adjust for timezone
+        new_end_datetime = datetime.fromisoformat(new_end_date) - timedelta(hours=4)
+    except ValueError as e:
+        app.logger.error(f"Invalid date format: {e}")
+        return jsonify({'error': 'Invalid date format'}), 400
+
+    # Check if the new time range is available
+    existing_appointments = Appointment.query.filter_by(doctor_id=appointment.doctor_id).filter(
+        Appointment.date.between(new_start_datetime, new_end_datetime)
+    ).all()
+    if existing_appointments:
+        app.logger.error(f"Some time slots within the range are already booked")
+        return jsonify({'error': 'Some time slots within the range are already booked'}), 400
+
+    # Mark the old time slots as available
+    current_time = appointment.date
+    while current_time < appointment.end_date:
+        time_slot = TimeSlot.query.filter_by(doctor_id=appointment.doctor_id, start_time=current_time).first()
+        if time_slot:
+            time_slot.is_available = True
+            time_slot.appointment_id = None
+        current_time += timedelta(minutes=30)
+
+    # Update the appointment dates
+    appointment.date = new_start_datetime
+    appointment.end_date = new_end_datetime
+
+    # Mark the new time slots as unavailable
+    current_time = new_start_datetime
+    while current_time < new_end_datetime:
+        time_slot = TimeSlot.query.filter_by(doctor_id=appointment.doctor_id, start_time=current_time).first()
+        if not time_slot:
+            time_slot = TimeSlot(doctor_id=appointment.doctor_id, start_time=current_time, is_available=False)
+            db.session.add(time_slot)
+        else:
+            time_slot.is_available = False
+        current_time += timedelta(minutes=30)
+
+    db.session.commit()
+
+    return jsonify({'message': 'Time off rescheduled successfully', 'appointment': appointment.to_dict()}), 200
