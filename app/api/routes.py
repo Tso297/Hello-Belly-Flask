@@ -7,12 +7,14 @@ from . import api
 from datetime import datetime, timedelta
 from flask_cors import cross_origin, CORS
 import smtplib
+from googleapiclient.discovery import build
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 import sib_api_v3_sdk
 from sib_api_v3_sdk.rest import ApiException
 from pprint import pprint
 from dotenv import load_dotenv
+import openai
 
 load_dotenv()
 
@@ -20,9 +22,8 @@ logging.basicConfig(level=logging.DEBUG)
 
 CORS(app, resources={r"/api/*": {"origins": "*"}}, supports_credentials=True)
 
-DOCTOR_EMAIL = "TORCSH30@gmail.com"
-appointments = []
-
+YOUTUBE_API_KEY = os.getenv('YOUTUBE_API_KEY')
+openai.api_key = os.getenv('OPENAI_API_KEY')
 CLIENT_ID = os.getenv('CLIENT_ID')
 CLIENT_SECRET = os.getenv('CLIENT_SECRET')
 REDIRECT_URI = os.getenv('REDIRECT_URI')
@@ -31,6 +32,10 @@ AUTHORIZATION_BASE_URL = os.getenv('AUTHORIZATION_BASE_URL')
 TOKEN_URL = os.getenv('TOKEN_URL')
 API_BASE_URL = os.getenv('API_BASE_URL')
 SENDINBLUE_API_KEY = os.getenv('SENDINBLUE_API_KEY')  # Your Sendinblue API key
+
+api = Blueprint('api', __name__, url_prefix='/api')
+appointments = []
+youtube = build('youtube', 'v3', developerKey=YOUTUBE_API_KEY)
 
 def generate_timeslots_for_doctor(doctor_id):
     start_time = datetime(2024, 1, 1, 9, 0)
@@ -563,3 +568,40 @@ def reschedule_time_off(appointment_id):
     db.session.commit()
 
     return jsonify({'message': 'Time off rescheduled successfully', 'appointment': appointment.to_dict()})
+
+
+@api.route('/youtube', methods=['GET'])
+def youtube_search():
+    query = request.args.get('query')
+    if not query:
+        return jsonify({"error": "Query parameter is required"}), 400
+
+    request = youtube.search().list(
+        part="snippet",
+        maxResults=5,
+        q=query
+    )
+    response = request.execute()
+    videos = [{
+        'id': item['id']['videoId'],
+        'title': item['snippet']['title'],
+        'description': item['snippet']['description']
+    } for item in response.get('items', [])]
+    
+    return jsonify({"videos": videos})
+
+@api.route('/chatgpt', methods=['POST'])
+def chatgpt_query():
+    data = request.json()
+    question = data.get('question')
+    if not question:
+        return jsonify({"error": "Question parameter is required"}), 400
+
+    response = openai.Completion.create(
+        engine="text-davinci-003",
+        prompt=f"Answer the following question about pregnancy: {question}",
+        max_tokens=150
+    )
+    answer = response.choices[0].text.strip()
+    
+    return jsonify({"answer": answer})
