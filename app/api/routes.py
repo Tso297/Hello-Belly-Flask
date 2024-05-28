@@ -592,7 +592,7 @@ def youtube_search():
     return jsonify({"videos": videos})
 
 @api.route('/chatgpt', methods=['POST'])
-@cross_origin(origins=['http://localhost:5173', 'https://hello-belly-22577.web.app'], supports_credentials=True)
+@cross_origin(origins=['https://hello-belly-22577.web.app'], supports_credentials=True)
 def chatgpt_query():
     data = request.json()
     question = data.get('question')
