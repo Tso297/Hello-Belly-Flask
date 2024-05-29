@@ -570,8 +570,8 @@ def reschedule_time_off(appointment_id):
     return jsonify({'message': 'Time off rescheduled successfully', 'appointment': appointment.to_dict()})
 
 
-@api.route('/chatgpt', methods=['POST'])
-@cross_origin(origins=['https://hello-belly-22577.web.app', 'http://localhost:5173'], supports_credentials=True)
+@app.route('/api/chatgpt', methods=['POST'])
+@cross_origin(origins=['http://localhost:5173', 'https://hello-belly-22577.web.app'], supports_credentials=True)
 def chatgpt_query():
     app.logger.info('chatgpt_query route accessed')
     data = request.json
@@ -582,18 +582,23 @@ def chatgpt_query():
         app.logger.error("Question parameter is required")
         return jsonify({"error": "Question parameter is required"}), 400
 
-    response = openai.Completion.create(
-        engine="text-davinci-003",
-        prompt=f"Answer the following question about pregnancy: {question}",
-        max_tokens=150
-    )
-    answer = response.choices[0].text.strip()
-    
-    app.logger.debug(f"Generated answer: {answer}")
-    return jsonify({"answer": answer})
+    try:
+        response = openai.ChatCompletion.create(
+            model="gpt-3.5-turbo",
+            messages=[
+                {"role": "system", "content": "You are a helpful assistant."},
+                {"role": "user", "content": f"Answer the following question about pregnancy: {question}"}
+            ]
+        )
+        answer = response.choices[0].message['content'].strip()
+        app.logger.debug(f"Generated answer: {answer}")
+        return jsonify({"answer": answer})
+    except Exception as e:
+        app.logger.error(f"Error generating answer: {e}")
+        return jsonify({"error": str(e)}), 500
 
-@api.route('/youtube', methods=['GET'])
-@cross_origin(origins=['https://hello-belly-22577.web.app', 'http://localhost:5173'], supports_credentials=True)
+@app.route('/api/youtube', methods=['GET'])
+@cross_origin(origins=['http://localhost:5173', 'https://hello-belly-22577.web.app'], supports_credentials=True)
 def youtube_search():
     app.logger.info('youtube_search route accessed')
     query = request.args.get('query')
@@ -616,3 +621,4 @@ def youtube_search():
     
     app.logger.debug(f"Found videos: {videos}")
     return jsonify({"videos": videos})
+
