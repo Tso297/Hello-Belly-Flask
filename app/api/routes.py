@@ -570,7 +570,7 @@ def reschedule_time_off(appointment_id):
     return jsonify({'message': 'Time off rescheduled successfully', 'appointment': appointment.to_dict()})
 
 
-@api.route('/youtube', methods=['GET'])
+@api.route('/api/youtube', methods=['GET'])
 @cross_origin(origins=['http://localhost:5173', 'https://hello-belly-22577.web.app'], supports_credentials=True)
 def youtube_search():
     query = request.args.get('query')
@@ -591,7 +591,7 @@ def youtube_search():
     
     return jsonify({"videos": videos})
 
-@api.route('/chatgpt', methods=['POST'])
+@api.route('/api/chatgpt', methods=['POST'])
 @cross_origin(origins=['https://hello-belly-22577.web.app'], supports_credentials=True)
 def chatgpt_query():
     data = request.json()
