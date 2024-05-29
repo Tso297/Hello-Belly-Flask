@@ -570,13 +570,38 @@ def reschedule_time_off(appointment_id):
     return jsonify({'message': 'Time off rescheduled successfully', 'appointment': appointment.to_dict()})
 
 
-@api.route('/api/youtube', methods=['GET'])
-@cross_origin(origins=['http://localhost:5173', 'https://hello-belly-22577.web.app'], supports_credentials=True)
+@api.route('/chatgpt', methods=['POST'])
+@cross_origin(origins=['https://hello-belly-22577.web.app', 'http://localhost:5173'], supports_credentials=True)
+def chatgpt_query():
+    app.logger.info('chatgpt_query route accessed')
+    data = request.json
+    app.logger.debug(f"Received data: {data}")
+    
+    question = data.get('question')
+    if not question:
+        app.logger.error("Question parameter is required")
+        return jsonify({"error": "Question parameter is required"}), 400
+
+    response = openai.Completion.create(
+        engine="text-davinci-003",
+        prompt=f"Answer the following question about pregnancy: {question}",
+        max_tokens=150
+    )
+    answer = response.choices[0].text.strip()
+    
+    app.logger.debug(f"Generated answer: {answer}")
+    return jsonify({"answer": answer})
+
+@api.route('/youtube', methods=['GET'])
+@cross_origin(origins=['https://hello-belly-22577.web.app', 'http://localhost:5173'], supports_credentials=True)
 def youtube_search():
+    app.logger.info('youtube_search route accessed')
     query = request.args.get('query')
     if not query:
+        app.logger.error("Query parameter is required")
         return jsonify({"error": "Query parameter is required"}), 400
 
+    app.logger.debug(f"Searching YouTube for query: {query}")
     request = youtube.search().list(
         part="snippet",
         maxResults=5,
@@ -589,21 +614,5 @@ def youtube_search():
         'description': item['snippet']['description']
     } for item in response.get('items', [])]
     
+    app.logger.debug(f"Found videos: {videos}")
     return jsonify({"videos": videos})
-
-@api.route('/api/chatgpt', methods=['POST'])
-@cross_origin(origins=['https://hello-belly-22577.web.app'], supports_credentials=True)
-def chatgpt_query():
-    data = request.json()
-    question = data.get('question')
-    if not question:
-        return jsonify({"error": "Question parameter is required"}), 400
-
-    response = openai.Completion.create(
-        engine="text-davinci-003",
-        prompt=f"Answer the following question about pregnancy: {question}",
-        max_tokens=150
-    )
-    answer = response.choices[0].text.strip()
-    
-    return jsonify({"answer": answer})
