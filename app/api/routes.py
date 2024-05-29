@@ -1,7 +1,7 @@
 import os
 from flask import Blueprint, request, jsonify, redirect, make_response
 from app import app, db
-from app.models import User, Appointment, Doctor, TimeSlot
+from app.models import User, Appointment, Doctor, TimeSlot, Class
 import logging, time, jwt, requests, base64, hashlib, hmac, random, string
 from . import api
 from datetime import datetime, timedelta
@@ -14,7 +14,11 @@ import sib_api_v3_sdk
 from sib_api_v3_sdk.rest import ApiException
 from pprint import pprint
 from dotenv import load_dotenv
+from openai import OpenAI
 import openai
+import uuid
+
+client = OpenAI(api_key=os.getenv('OPENAI_API_KEY'))
 
 load_dotenv()
 
@@ -22,8 +26,8 @@ logging.basicConfig(level=logging.DEBUG)
 
 CORS(app, resources={r"/api/*": {"origins": "*"}}, supports_credentials=True)
 
+OPENAI_API_KEY = os.getenv('OPENAI_API_KEY')
 YOUTUBE_API_KEY = os.getenv('YOUTUBE_API_KEY')
-openai.api_key = os.getenv('OPENAI_API_KEY')
 CLIENT_ID = os.getenv('CLIENT_ID')
 CLIENT_SECRET = os.getenv('CLIENT_SECRET')
 REDIRECT_URI = os.getenv('REDIRECT_URI')
@@ -34,8 +38,14 @@ API_BASE_URL = os.getenv('API_BASE_URL')
 SENDINBLUE_API_KEY = os.getenv('SENDINBLUE_API_KEY')  # Your Sendinblue API key
 
 api = Blueprint('api', __name__, url_prefix='/api')
+classes = []
 appointments = []
 youtube = build('youtube', 'v3', developerKey=YOUTUBE_API_KEY)
+client = OpenAI(api_key=OPENAI_API_KEY)
+
+def generate_jitsi_link():
+    random_string = ''.join(random.choices(string.ascii_lowercase + string.digits, k=10))
+    return f'https://meet.jit.si/{random_string}'
 
 def generate_timeslots_for_doctor(doctor_id):
     start_time = datetime(2024, 1, 1, 9, 0)
@@ -54,7 +64,7 @@ def generate_timeslots_for_doctor(doctor_id):
     db.session.bulk_save_objects(slots)
     db.session.commit()
     app.logger.info(f"Time slots generated for doctor {doctor_id}")
-    
+
 def generate_full_day_slots(date):
     """Generate all possible slots for a given date from 9:00 AM to 5:00 PM."""
     start_time = datetime.combine(date, datetime.min.time()) + timedelta(hours=9)
@@ -146,7 +156,7 @@ def schedule_meeting():
         meeting_password=meeting_password
     )
     db.session.add(appointment)
-    
+
     # Update the TimeSlot to mark it as booked
     time_slot.is_available = False
     time_slot.appointment_id = appointment.id
@@ -209,7 +219,7 @@ def schedule_appointment():
     meeting_password = data['meeting_password']
 
     time_slot = TimeSlot.query.filter_by(doctor_id=doctor_id, start_time=date, is_available=True).first()
-    
+
     if not time_slot:
         return jsonify({'error': 'Time slot is not available'}), 400
 
@@ -235,10 +245,10 @@ def schedule_appointment():
 @cross_origin(origins=['http://localhost:5173', 'https://hello-belly-22577.web.app'], supports_credentials=True)
 def cancel_appointment(appointment_id):
     appointment = Appointment.query.get(appointment_id)
-    
+
     if not appointment:
         return jsonify({'error': 'Appointment not found'}), 404
-    
+
     time_slots = TimeSlot.query.filter_by(appointment_id=appointment_id).all()
     for time_slot in time_slots:
         time_slot.is_available = True
@@ -399,7 +409,7 @@ def get_available_slots():
     date = datetime.fromisoformat(date_str)
     start_time = date.replace(hour=9, minute=0, second=0, microsecond=0)
     end_time = date.replace(hour=17, minute=0, second=0, microsecond=0)
-    
+
     all_slots = [start_time + timedelta(minutes=30 * i) for i in range(17)]  # 9 AM to 5 PM inclusive
 
     taken_slots = TimeSlot.query.filter_by(doctor_id=doctor_id, is_available=False).filter(
@@ -475,7 +485,7 @@ def request_time_off():
         user = User(id=generate_random_string(), email=user_email, name=user_name)
         db.session.add(user)
         db.session.commit()
-    
+
     user_id = user.id
 
     existing_appointments = Appointment.query.filter_by(doctor_id=doctor_id).filter(
@@ -499,7 +509,7 @@ def request_time_off():
         is_time_off=True
     )
     db.session.add(appointment)
-    
+
     current_time = start_date
     while current_time < end_date:
         time_slot = TimeSlot.query.filter_by(doctor_id=doctor_id, start_time=current_time).first()
@@ -571,7 +581,7 @@ def reschedule_time_off(appointment_id):
 
 
 @app.route('/api/chatgpt', methods=['POST'])
-@cross_origin(origins=['http://localhost:5173', 'https://hello-belly-22577.web.app'], supports_credentials=True)
+@cross_origin(origins=['https://hello-belly-22577.web.app', 'http://localhost:5173'], supports_credentials=True)
 def chatgpt_query():
     app.logger.info('chatgpt_query route accessed')
     data = request.json
@@ -583,14 +593,14 @@ def chatgpt_query():
         return jsonify({"error": "Question parameter is required"}), 400
 
     try:
-        response = openai.ChatCompletion.create(
+        response = client.chat.completions.create(
             model="gpt-3.5-turbo",
             messages=[
                 {"role": "system", "content": "You are a helpful assistant."},
                 {"role": "user", "content": f"Answer the following question about pregnancy: {question}"}
             ]
         )
-        answer = response.choices[0].message['content'].strip()
+        answer = response.choices[0].message.content.strip()
         app.logger.debug(f"Generated answer: {answer}")
         return jsonify({"answer": answer})
     except Exception as e:
@@ -598,7 +608,7 @@ def chatgpt_query():
         return jsonify({"error": str(e)}), 500
 
 @app.route('/api/youtube', methods=['GET'])
-@cross_origin(origins=['http://localhost:5173', 'https://hello-belly-22577.web.app'], supports_credentials=True)
+@cross_origin(origins=['https://hello-belly-22577.web.app', 'http://localhost:5173'], supports_credentials=True)
 def youtube_search():
     app.logger.info('youtube_search route accessed')
     query = request.args.get('query')
@@ -607,18 +617,83 @@ def youtube_search():
         return jsonify({"error": "Query parameter is required"}), 400
 
     app.logger.debug(f"Searching YouTube for query: {query}")
-    request = youtube.search().list(
-        part="snippet",
-        maxResults=5,
-        q=query
-    )
-    response = request.execute()
-    videos = [{
-        'id': item['id']['videoId'],
-        'title': item['snippet']['title'],
-        'description': item['snippet']['description']
-    } for item in response.get('items', [])]
+    url = f'https://www.googleapis.com/youtube/v3/search?part=snippet&q={query}&key={YOUTUBE_API_KEY}&type=video'
+    response = requests.get(url)
+    videos = response.json().get('items', [])
     
+    video_data = [
+        {
+            'id': video['id']['videoId'],
+            'title': video['snippet']['title'],
+            'description': video['snippet']['description']
+        }
+        for video in videos
+    ]
+    
+    app.logger.debug(f"Found videos: {video_data}")
+    return jsonify({"videos": video_data})
+
+
     app.logger.debug(f"Found videos: {videos}")
     return jsonify({"videos": videos})
 
+@app.route('/api/classes', methods=['GET'])
+@cross_origin(origins=['http://localhost:5173', 'https://hello-belly-22577.web.app'], supports_credentials=True)
+def get_classes():
+    try:
+        classes = Class.query.all()
+        return jsonify([class_instance.to_dict() for class_instance in classes])
+    except Exception as e:
+        app.logger.error(f"Error fetching classes: {e}")
+        return jsonify({"error": str(e)}), 500
+    
+@app.route('/api/update_class/<class_id>', methods=['PUT'])
+@cross_origin(origins=['http://localhost:5173', 'https://hello-belly-22577.web.app'], supports_credentials=True)
+def update_class(class_id):
+    data = request.json
+    try:
+        class_instance = Class.query.get(class_id)
+        if not class_instance:
+            return jsonify({"error": "Class not found"}), 404
+
+        class_instance.name = data.get('name', class_instance.name)
+        class_instance.day_of_week = data.get('day_of_week', class_instance.day_of_week)
+        class_instance.time = datetime.strptime(data['time'], '%H:%M').time()
+        db.session.commit()
+        return jsonify(class_instance.to_dict())
+    except Exception as e:
+        app.logger.error(f"Error updating class: {e}")
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/api/delete_class/<class_id>', methods=['DELETE'])
+@cross_origin(origins=['http://localhost:5173', 'https://hello-belly-22577.web.app'], supports_credentials=True)
+def delete_class(class_id):
+    try:
+        class_instance = Class.query.get(class_id)
+        if not class_instance:
+            return jsonify({"error": "Class not found"}), 404
+
+        db.session.delete(class_instance)
+        db.session.commit()
+        return jsonify({"message": "Class deleted successfully"})
+    except Exception as e:
+        app.logger.error(f"Error deleting class: {e}")
+        return jsonify({"error": str(e)}), 500
+    
+@app.route('/api/add_class', methods=['POST'])
+@cross_origin(origins=['http://localhost:5173', 'https://hello-belly-22577.web.app'], supports_credentials=True)
+def add_class():
+    data = request.json
+    try:
+        name = data['name']
+        day_of_week = data['day_of_week']
+        time = datetime.strptime(data['time'], '%H:%M').time()
+        link = f"https://meet.jit.si/{uuid.uuid4()}"
+
+        new_class = Class(id=str(uuid.uuid4()), name=name, day_of_week=day_of_week, time=time, link=link)
+        db.session.add(new_class)
+        db.session.commit()
+        return jsonify(new_class.to_dict()), 201
+    except Exception as e:
+        app.logger.error(f"Error adding class: {e}")
+        return jsonify({"error": str(e)}), 500

@@ -1,3 +1,4 @@
+import uuid
 from sqlalchemy import Column, String, DateTime, ForeignKey
 from sqlalchemy.orm import relationship
 from app import db
@@ -57,3 +58,19 @@ class TimeSlot(db.Model):
     start_time = db.Column(db.DateTime, nullable=False)
     is_available = db.Column(db.Boolean, default=True)
     appointment_id = db.Column(db.String(255), db.ForeignKey('appointment.id'), nullable=True)
+
+class Class(db.Model):
+    id = db.Column(db.String(255), primary_key=True)
+    name = db.Column(db.String(255), nullable=False)
+    day_of_week = db.Column(db.String(255), nullable=False)  # e.g., 'Monday', 'Tuesday', etc.
+    time = db.Column(db.Time, nullable=False)
+    link = db.Column(db.String(255), nullable=False)
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'name': self.name,
+            'day_of_week': self.day_of_week,
+            'time': self.time.isoformat(),
+            'link': self.link
+        }
