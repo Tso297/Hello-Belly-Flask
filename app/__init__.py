@@ -17,4 +17,3 @@ from . import models
 from .api import api
 
 app.register_blueprint(api)
-
