@@ -164,6 +164,7 @@ def schedule_meeting():
 
     body = f"""
     Meeting Details:
+    Doctor: {doctor.name}
     Purpose: {purpose}
     Date and Time: {date}
     Meeting URL: {meeting_url}
@@ -173,6 +174,7 @@ def schedule_meeting():
 
     moderator_body = f"""
     Meeting Details:
+    Patient: {user.name}
     Purpose: {purpose}
     Date and Time: {date}
     Meeting URL: {meeting_url}
@@ -249,6 +251,33 @@ def cancel_appointment(appointment_id):
     if not appointment:
         return jsonify({'error': 'Appointment not found'}), 404
 
+    user = User.query.get(appointment.user_id)
+    doctor = Doctor.query.get(appointment.doctor_id)
+
+    subject = f"Meeting Canceled: {appointment.purpose}"
+    body = f"""
+    Your meeting has been canceled.
+    Meeting Details:
+    Doctor: {doctor.name}
+    Purpose: {appointment.purpose}
+    Date and Time: {appointment.date}
+    Meeting URL: {appointment.meeting_url}
+    """
+
+    moderator_body = f"""
+    The meeting has been canceled.
+    Meeting Details:
+    Patient: {user.name}
+    Purpose: {appointment.purpose}
+    Date and Time: {appointment.date}
+    Meeting URL: {appointment.meeting_url}
+    Moderator URL: {appointment.moderator_url}
+    Meeting Password: {appointment.meeting_password}
+    """
+
+    send_email(doctor.email, subject, moderator_body)
+    send_email(user.email, subject, body)
+
     time_slots = TimeSlot.query.filter_by(appointment_id=appointment_id).all()
     for time_slot in time_slots:
         time_slot.is_available = True
@@ -299,6 +328,33 @@ def reschedule_appointment(appointment_id):
 
     appointment.date = new_datetime
     db.session.commit()
+
+    user = User.query.get(appointment.user_id)
+    doctor = Doctor.query.get(appointment.doctor_id)
+
+    subject = f"Meeting Rescheduled: {appointment.purpose}"
+    body = f"""
+    Your meeting has been rescheduled.
+    New Meeting Details:
+    Doctor: {doctor.name}
+    Purpose: {appointment.purpose}
+    Date and Time: {new_datetime}
+    Meeting URL: {appointment.meeting_url}
+    """
+
+    moderator_body = f"""
+    The meeting has been rescheduled.
+    New Meeting Details:
+    Patient: {user.name}
+    Purpose: {appointment.purpose}
+    Date and Time: {new_datetime}
+    Meeting URL: {appointment.meeting_url}
+    Moderator URL: {appointment.moderator_url}
+    Meeting Password: {appointment.meeting_password}
+    """
+
+    send_email(doctor.email, subject, moderator_body)
+    send_email(user.email, subject, body)
 
     return jsonify({'message': 'Appointment rescheduled successfully', 'appointment': appointment.to_dict()})
 
