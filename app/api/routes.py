@@ -697,3 +697,16 @@ def add_class():
     except Exception as e:
         app.logger.error(f"Error adding class: {e}")
         return jsonify({"error": str(e)}), 500
+
+google_maps_key = os.getenv('VITE_GOOGLE_MAPS_API_KEY')    
+print(f"Loaded Google Maps API key: {os.getenv('VITE_GOOGLE_MAPS_API_KEY')}")
+
+@app.route('/api/google_maps_key', methods=['GET', 'POST'])
+@cross_origin(origins=['http://localhost:5173', 'https://hello-belly-22577.web.app'], supports_credentials=True)
+def get_google_maps_key():
+    google_maps_key = os.getenv('VITE_GOOGLE_MAPS_API_KEY')
+    app.logger.debug(f"Fetching Google Maps API key: {google_maps_key}")
+    if not google_maps_key:
+        app.logger.error("Google Maps API key not found")
+        return jsonify({'error': 'Google Maps API key not found'}), 404
+    return jsonify({'google_maps_key': google_maps_key})
