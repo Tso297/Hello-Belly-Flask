@@ -668,12 +668,14 @@ def chatgpt_query():
 def youtube_search():
     app.logger.info('youtube_search route accessed')
     query = request.args.get('query')
+    max_results = request.args.get('maxResults', 20)  # Default to 20 if not provided
+
     if not query:
         app.logger.error("Query parameter is required")
         return jsonify({"error": "Query parameter is required"}), 400
 
     app.logger.debug(f"Searching YouTube for query: {query}")
-    url = f'https://www.googleapis.com/youtube/v3/search?part=snippet&q={query}&key={YOUTUBE_API_KEY}&type=video'
+    url = f'https://www.googleapis.com/youtube/v3/search?part=snippet&q={query}&maxResults={max_results}&key={YOUTUBE_API_KEY}&type=video'
     response = requests.get(url)
     videos = response.json().get('items', [])
     
@@ -688,10 +690,6 @@ def youtube_search():
     
     app.logger.debug(f"Found videos: {video_data}")
     return jsonify({"videos": video_data})
-
-
-    app.logger.debug(f"Found videos: {videos}")
-    return jsonify({"videos": videos})
 
 @app.route('/api/classes', methods=['GET'])
 @cross_origin(origins=['http://localhost:5173', 'https://hello-belly-22577.web.app'], supports_credentials=True)
