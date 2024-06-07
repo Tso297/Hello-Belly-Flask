@@ -668,7 +668,7 @@ def chatgpt_query():
 def youtube_search():
     app.logger.info('youtube_search route accessed')
     query = request.args.get('query')
-    max_results = request.args.get('maxResults', 20)  # Default to 20 if not provided
+    max_results = request.args.get('maxResults', 5)  # Default to 20 if not provided
 
     if not query:
         app.logger.error("Query parameter is required")
