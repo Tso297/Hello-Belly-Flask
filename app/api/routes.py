@@ -100,7 +100,7 @@ def generate_random_string(length=12):
     return ''.join(random.choice(letters) for i in range(length))
 
 @app.route('/api/schedule_meeting', methods=['POST'])
-@cross_origin(origins=['http://localhost:5173', 'https://hello-belly-22577.web.app'], supports_credentials=True)
+@cross_origin(origins=['http://localhost:5173', 'https://hello-belly-22577.web.app', 'https://hello-belly-22577.firebaseapp.com/'], supports_credentials=True)
 def schedule_meeting():
     data = request.json
     date_str = data.get('date')
@@ -192,7 +192,7 @@ def schedule_meeting():
     return jsonify({'message': 'Meeting scheduled successfully', 'appointment': appointment.to_dict()})
 
 @app.route('/api/appointments', methods=['GET'])
-@cross_origin(origins=['http://localhost:5173', 'https://hello-belly-22577.web.app'], supports_credentials=True)
+@cross_origin(origins=['http://localhost:5173', 'https://hello-belly-22577.web.app', 'https://hello-belly-22577.firebaseapp.com/'], supports_credentials=True)
 def list_appointments():
     user_email = request.args.get('email')
     if not user_email:
@@ -209,7 +209,7 @@ def list_appointments():
     return jsonify({'appointments': [a.to_dict() for a in appointments]})
 
 @app.route('/api/appointments', methods=['POST'])
-@cross_origin(origins=['http://localhost:5173', 'https://hello-belly-22577.web.app'], supports_credentials=True)
+@cross_origin(origins=['http://localhost:5173', 'https://hello-belly-22577.web.app', 'https://hello-belly-22577.firebaseapp.com/'], supports_credentials=True)
 def schedule_appointment():
     data = request.json
     doctor_id = data['doctor_id']
@@ -244,7 +244,7 @@ def schedule_appointment():
     return jsonify(appointment.to_dict()), 201
 
 @app.route('/api/appointments/<appointment_id>', methods=['DELETE'])
-@cross_origin(origins=['http://localhost:5173', 'https://hello-belly-22577.web.app'], supports_credentials=True)
+@cross_origin(origins=['http://localhost:5173', 'https://hello-belly-22577.web.app', 'https://hello-belly-22577.firebaseapp.com/'], supports_credentials=True)
 def cancel_appointment(appointment_id):
     appointment = Appointment.query.get(appointment_id)
 
@@ -290,7 +290,7 @@ def cancel_appointment(appointment_id):
 
 
 @app.route('/api/appointments/<appointment_id>', methods=['PUT'])
-@cross_origin(origins=['http://localhost:5173', 'https://hello-belly-22577.web.app'], supports_credentials=True)
+@cross_origin(origins=['http://localhost:5173', 'https://hello-belly-22577.web.app', 'https://hello-belly-22577.firebaseapp.com/'], supports_credentials=True)
 def reschedule_appointment(appointment_id):
     data = request.json
     app.logger.debug(f"Received data for rescheduling: {data}")
@@ -381,7 +381,7 @@ def send_email(to_email, subject, body):
         print(f"Failed to send email to {to_email}: {e}")
 
 @app.route('/api/doctors', methods=['POST'])
-@cross_origin(origins=['http://localhost:5173', 'https://hello-belly-22577.web.app'], supports_credentials=True)
+@cross_origin(origins=['http://localhost:5173', 'https://hello-belly-22577.web.app', 'https://hello-belly-22577.firebaseapp.com/'], supports_credentials=True)
 def create_doctor():
     data = request.json
     name = data.get('name')
@@ -399,14 +399,14 @@ def create_doctor():
     return jsonify({'message': 'Doctor created successfully', 'doctor': {'id': doctor.id, 'name': doctor.name, 'email': doctor.email}}), 201
 
 @app.route('/api/admin/doctors', methods=['GET'])
-@cross_origin(origins=['http://localhost:5173', 'https://hello-belly-22577.web.app'], supports_credentials=True)
+@cross_origin(origins=['http://localhost:5173', 'https://hello-belly-22577.web.app', 'https://hello-belly-22577.firebaseapp.com/'], supports_credentials=True)
 def admin_list_doctors():
     doctors = Doctor.query.all()
     app.logger.info(f"Doctors retrieved: {[doctor.name for doctor in doctors]}")
     return jsonify({'doctors': [{'id': doctor.id, 'name': doctor.name, 'email': doctor.email} for doctor in doctors]})
 
 @app.route('/api/admin/doctors', methods=['POST'])
-@cross_origin(origins=['http://localhost:5173', 'https://hello-belly-22577.web.app'], supports_credentials=True)
+@cross_origin(origins=['http://localhost:5173', 'https://hello-belly-22577.web.app', 'https://hello-belly-22577.firebaseapp.com/'], supports_credentials=True)
 def admin_create_doctor():
     data = request.json
     admin_email = request.args.get('admin_email')
@@ -432,14 +432,14 @@ def admin_create_doctor():
     return jsonify({'message': 'Doctor created successfully', 'doctor': {'id': doctor.id, 'name': doctor.name, 'email': doctor.email}}), 201
 
 @app.route('/api/doctors', methods=['GET'])
-@cross_origin(origins=['http://localhost:5173', 'https://hello-belly-22577.web.app'], supports_credentials=True)
+@cross_origin(origins=['http://localhost:5173', 'https://hello-belly-22577.web.app', 'https://hello-belly-22577.firebaseapp.com/'], supports_credentials=True)
 def list_doctors():
     doctors = Doctor.query.all()
     app.logger.info(f"Doctors retrieved: {[doctor.name for doctor in doctors]}")
     return jsonify({'doctors': [{'id': doctor.id, 'name': doctor.name, 'email': doctor.email} for doctor in doctors]})
 
 @app.route('/api/is_doctor', methods=['GET'])
-@cross_origin(origins=['http://localhost:5173', 'https://hello-belly-22577.web.app'], supports_credentials=True)
+@cross_origin(origins=['http://localhost:5173', 'https://hello-belly-22577.web.app', 'https://hello-belly-22577.firebaseapp.com/'], supports_credentials=True)
 def is_doctor():
     user_email = request.args.get('email')
     if not user_email:
@@ -453,7 +453,7 @@ def is_doctor():
     return jsonify({'is_doctor': is_doctor})
 
 @app.route('/api/available_slots', methods=['GET'])
-@cross_origin(origins=['http://localhost:5173', 'https://hello-belly-22577.web.app'], supports_credentials=True)
+@cross_origin(origins=['http://localhost:5173', 'https://hello-belly-22577.web.app', 'https://hello-belly-22577.firebaseapp.com/'], supports_credentials=True)
 def get_available_slots():
     doctor_id = request.args.get('doctor_id')
     date_str = request.args.get('date')
@@ -480,7 +480,7 @@ def get_available_slots():
 
 
 @app.route('/api/doctor_appointments', methods=['GET'])
-@cross_origin(origins=['http://localhost:5173', 'https://hello-belly-22577.web.app'], supports_credentials=True)
+@cross_origin(origins=['http://localhost:5173', 'https://hello-belly-22577.web.app', 'https://hello-belly-22577.firebaseapp.com/'], supports_credentials=True)
 def doctor_appointments():
     doctor_id = request.args.get('doctor_id')
     app.logger.info(f"Received doctor_appointments request for doctor_id: {doctor_id}")
@@ -494,7 +494,7 @@ def doctor_appointments():
 
 
 @app.route('/api/doctor_by_email', methods=['GET'])
-@cross_origin(origins=['http://localhost:5173', 'https://hello-belly-22577.web.app'], supports_credentials=True)
+@cross_origin(origins=['http://localhost:5173', 'https://hello-belly-22577.web.app', 'https://hello-belly-22577.firebaseapp.com/'], supports_credentials=True)
 def get_doctor_by_email():
     email = request.args.get('email')
     app.logger.info(f"Received get_doctor_by_email request for email: {email}")
@@ -511,7 +511,7 @@ def get_doctor_by_email():
     return jsonify({'id': doctor.id, 'name': doctor.name, 'email': doctor.email})
 
 @app.route('/api/request_time_off', methods=['POST'])
-@cross_origin(origins=['http://localhost:5173', 'https://hello-belly-22577.web.app'], supports_credentials=True)
+@cross_origin(origins=['http://localhost:5173', 'https://hello-belly-22577.web.app', 'https://hello-belly-22577.firebaseapp.com/'], supports_credentials=True)
 def request_time_off():
     data = request.json
     date_str = data.get('date')
@@ -581,7 +581,7 @@ def request_time_off():
     return jsonify({'message': 'Time off requested successfully'}), 201
 
 @app.route('/api/request_time_off/<appointment_id>', methods=['PUT'])
-@cross_origin(origins=['http://localhost:5173', 'https://hello-belly-22577.web.app'], supports_credentials=True)
+@cross_origin(origins=['http://localhost:5173', 'https://hello-belly-22577.web.app', 'https://hello-belly-22577.firebaseapp.com/'], supports_credentials=True)
 def reschedule_time_off(appointment_id):
     data = request.json
     new_start_date_str = data.get('new_start_date')
@@ -637,7 +637,7 @@ def reschedule_time_off(appointment_id):
 
 
 @app.route('/api/chatgpt', methods=['POST'])
-@cross_origin(origins=['https://hello-belly-22577.web.app', 'http://localhost:5173'], supports_credentials=True)
+@cross_origin(origins=['https://hello-belly-22577.web.app', 'http://localhost:5173', 'https://hello-belly-22577.firebaseapp.com/'], supports_credentials=True)
 def chatgpt_query():
     app.logger.info('chatgpt_query route accessed')
     data = request.json
@@ -664,7 +664,7 @@ def chatgpt_query():
         return jsonify({"error": str(e)}), 500
 
 @app.route('/api/youtube', methods=['GET'])
-@cross_origin(origins=['https://hello-belly-22577.web.app', 'http://localhost:5173'], supports_credentials=True)
+@cross_origin(origins=['https://hello-belly-22577.web.app', 'http://localhost:5173', 'https://hello-belly-22577.firebaseapp.com/'], supports_credentials=True)
 def youtube_search():
     app.logger.info('youtube_search route accessed')
     query = request.args.get('query')
@@ -692,7 +692,7 @@ def youtube_search():
     return jsonify({"videos": video_data})
 
 @app.route('/api/classes', methods=['GET'])
-@cross_origin(origins=['http://localhost:5173', 'https://hello-belly-22577.web.app'], supports_credentials=True)
+@cross_origin(origins=['http://localhost:5173', 'https://hello-belly-22577.web.app', 'https://hello-belly-22577.firebaseapp.com/'], supports_credentials=True)
 def get_classes():
     try:
         classes = Class.query.all()
@@ -702,7 +702,7 @@ def get_classes():
         return jsonify({"error": str(e)}), 500
     
 @app.route('/api/update_class/<class_id>', methods=['PUT'])
-@cross_origin(origins=['http://localhost:5173', 'https://hello-belly-22577.web.app'], supports_credentials=True)
+@cross_origin(origins=['http://localhost:5173', 'https://hello-belly-22577.web.app', 'https://hello-belly-22577.firebaseapp.com/'], supports_credentials=True)
 def update_class(class_id):
     data = request.json
     try:
@@ -720,7 +720,7 @@ def update_class(class_id):
         return jsonify({"error": str(e)}), 500
 
 @app.route('/api/delete_class/<class_id>', methods=['DELETE'])
-@cross_origin(origins=['http://localhost:5173', 'https://hello-belly-22577.web.app'], supports_credentials=True)
+@cross_origin(origins=['http://localhost:5173', 'https://hello-belly-22577.web.app', 'https://hello-belly-22577.firebaseapp.com/'], supports_credentials=True)
 def delete_class(class_id):
     try:
         class_instance = Class.query.get(class_id)
@@ -735,7 +735,7 @@ def delete_class(class_id):
         return jsonify({"error": str(e)}), 500
     
 @app.route('/api/add_class', methods=['POST'])
-@cross_origin(origins=['http://localhost:5173', 'https://hello-belly-22577.web.app'], supports_credentials=True)
+@cross_origin(origins=['http://localhost:5173', 'https://hello-belly-22577.web.app', 'https://hello-belly-22577.firebaseapp.com/'], supports_credentials=True)
 def add_class():
     data = request.json
     try:
@@ -756,7 +756,7 @@ google_maps_key = os.getenv('VITE_GOOGLE_MAPS_API_KEY')
 print(f"Loaded Google Maps API key: {os.getenv('VITE_GOOGLE_MAPS_API_KEY')}")
 
 @app.route('/api/google_maps_key', methods=['GET', 'POST'])
-@cross_origin(origins=['http://localhost:5173', 'https://hello-belly-22577.web.app'], supports_credentials=True)
+@cross_origin(origins=['http://localhost:5173', 'https://hello-belly-22577.web.app', 'https://hello-belly-22577.firebaseapp.com/'], supports_credentials=True)
 def get_google_maps_key():
     google_maps_key = os.getenv('VITE_GOOGLE_MAPS_API_KEY')
     app.logger.debug(f"Fetching Google Maps API key: {google_maps_key}")
