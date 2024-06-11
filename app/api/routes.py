@@ -781,8 +781,10 @@ def update_doctor(doctor_id):
 @cross_origin(origins=['http://localhost:5173', 'https://hello-belly-22577.web.app', 'https://hello-belly-22577.firebaseapp.com/'], supports_credentials=True)
 def delete_doctor(doctor_id):
     try:
-        Appointment.query.filter(Appointment.doctor_id == doctor_id).delete()
         TimeSlot.query.filter(TimeSlot.doctor_id == doctor_id).delete()
+
+        Appointment.query.filter(Appointment.doctor_id == doctor_id).delete()
+
         Doctor.query.filter(Doctor.id == doctor_id).delete()
 
         db.session.commit()
