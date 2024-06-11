@@ -764,3 +764,34 @@ def get_google_maps_key():
         app.logger.error("Google Maps API key not found")
         return jsonify({'error': 'Google Maps API key not found'}), 404
     return jsonify({'google_maps_key': google_maps_key})
+
+@app.route('/api/doctors/<doctor_id>', methods=['PUT'])
+@cross_origin(origins=['http://localhost:5173', 'https://hello-belly-22577.web.app', 'https://hello-belly-22577.firebaseapp.com/'], supports_credentials=True)
+def update_doctor(doctor_id):
+    data = request.get_json()
+    doctor = Doctor.query.get(doctor_id)
+    if doctor:
+        doctor.name = data.get('name', doctor.name)
+        doctor.email = data.get('email', doctor.email)
+        db.session.commit()
+        return jsonify({"message": "Doctor updated successfully."}), 200
+    return jsonify({"error": "Doctor not found."}), 404
+
+@app.route('/api/doctors/<doctor_id>', methods=['DELETE'])
+@cross_origin(origins=['http://localhost:5173', 'https://hello-belly-22577.web.app', 'https://hello-belly-22577.firebaseapp.com/'], supports_credentials=True)
+def delete_doctor(doctor_id):
+    try:
+        doctor = Doctor.query.get(doctor_id)
+        if doctor:
+            appointments = Appointment.query.filter_by(doctor_id=doctor_id).all()
+            for appointment in appointments:
+                time_slots = TimeSlot.query.filter_by(appointment_id=appointment.id).all()
+                for time_slot in time_slots:
+                    db.session.delete(time_slot)
+                db.session.delete(appointment)
+            db.session.delete(doctor)
+            db.session.commit()
+            return jsonify({"message": "Doctor and related data deleted successfully."}), 200
+        return jsonify({"error": "Doctor not found."}), 404
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
