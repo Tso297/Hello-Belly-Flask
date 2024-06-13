@@ -18,6 +18,8 @@ from openai import OpenAI
 import openai
 import uuid
 from werkzeug.utils import secure_filename
+import firebase_admin
+from firebase_admin import credentials, firestore
 
 client = OpenAI(api_key=os.getenv('OPENAI_API_KEY'))
 
@@ -26,6 +28,10 @@ load_dotenv()
 logging.basicConfig(level=logging.DEBUG)
 
 CORS(app, resources={r"/api/*": {"origins": "*"}}, supports_credentials=True)
+
+cred = credentials.Certificate('path/to/serviceAccountKey.json')
+firebase_admin.initialize_app(cred)
+firestore_db = firestore.client()
 
 OPENAI_API_KEY = os.getenv('OPENAI_API_KEY')
 YOUTUBE_API_KEY = os.getenv('YOUTUBE_API_KEY')
@@ -889,5 +895,18 @@ def delete_file():
         db.session.delete(file_record)
         db.session.commit()
         return jsonify({'message': 'File deleted successfully'}), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/sync_doctors', methods=['GET'])
+@cross_origin(origins=['http://localhost:5173', 'https://hello-belly-22577.web.app', 'https://hello-belly-22577.firebaseapp.com/'], supports_credentials=True)
+def sync_doctors():
+    try:
+        doctors = Doctor.query.all()
+        doctor_list = [{'id': doctor.id, 'name': doctor.name, 'email': doctor.email} for doctor in doctors]
+
+        # Remove Firestore sync code
+
+        return jsonify({'message': 'Doctors synced successfully'}), 200
     except Exception as e:
         return jsonify({'error': str(e)}), 500
