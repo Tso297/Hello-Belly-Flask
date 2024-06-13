@@ -18,8 +18,6 @@ from openai import OpenAI
 import openai
 import uuid
 from werkzeug.utils import secure_filename
-import firebase_admin
-from firebase_admin import credentials, firestore
 
 client = OpenAI(api_key=os.getenv('OPENAI_API_KEY'))
 
