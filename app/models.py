@@ -2,7 +2,7 @@ import uuid
 from sqlalchemy import Column, String, DateTime, ForeignKey
 from sqlalchemy.orm import relationship
 from app import db
-import datetime
+from datetime import datetime
 
 class User(db.Model):
     id = db.Column(db.String(255), primary_key=True)

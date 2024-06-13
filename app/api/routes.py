@@ -1,7 +1,7 @@
 import os
 from flask import Blueprint, request, jsonify, redirect, make_response
 from app import app, db
-from app.models import User, Appointment, Doctor, TimeSlot, Class
+from app.models import User, Appointment, Doctor, TimeSlot, Class, UploadedFile
 import logging, time, jwt, requests, base64, hashlib, hmac, random, string
 from . import api
 from datetime import datetime, timedelta
