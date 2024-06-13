@@ -816,7 +816,7 @@ def list_files():
         return jsonify({'error': 'Doctor ID is required'}), 400
 
     files = UploadedFile.query.filter_by(doctor_id=doctor_id).all()
-    file_paths = [{'filename': f.filename, 'file_path': f.file_path} for f in files]
+    file_paths = [{'id': f.id, 'filename': f.filename, 'file_path': f.file_path} for f in files]
     return jsonify({'files': file_paths}), 200
 
 @app.route('/api/upload', methods=['POST'])
