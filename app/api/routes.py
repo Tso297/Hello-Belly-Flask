@@ -1,7 +1,7 @@
 import os
 from flask import Blueprint, request, jsonify, redirect, make_response
 from app import app, db
-from app.models import User, Appointment, Doctor, TimeSlot, Class, UploadedFile
+from app.models import User, Appointment, Doctor, TimeSlot, Class, UploadedFile, Message, Chat
 import logging, time, jwt, requests, base64, hashlib, hmac, random, string
 from . import api
 from datetime import datetime, timedelta
@@ -29,9 +29,9 @@ logging.basicConfig(level=logging.DEBUG)
 
 CORS(app, resources={r"/api/*": {"origins": "*"}}, supports_credentials=True)
 
-cred = credentials.Certificate('path/to/serviceAccountKey.json')
-firebase_admin.initialize_app(cred)
-firestore_db = firestore.client()
+# cred = credentials.Certificate('path/to/serviceAccountKey.json')
+# firebase_admin.initialize_app(cred)
+# firestore_db = firestore.client()
 
 OPENAI_API_KEY = os.getenv('OPENAI_API_KEY')
 YOUTUBE_API_KEY = os.getenv('YOUTUBE_API_KEY')
@@ -910,3 +910,110 @@ def sync_doctors():
         return jsonify({'message': 'Doctors synced successfully'}), 200
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+    
+@app.route('/api/search_users', methods=['GET'])
+@cross_origin(origins=['http://localhost:5173', 'https://hello-belly-22577.web.app', 'https://hello-belly-22577.firebaseapp.com/'], supports_credentials=True)
+def search_users():
+    term = request.args.get('term', '').lower()
+    results = []
+
+    if term:
+        users = User.query.filter(User.name.ilike(f'%{term}%') | User.email.ilike(f'%{term}%')).all()
+        doctors = Doctor.query.filter(Doctor.name.ilike(f'%{term}%') | Doctor.email.ilike(f'%{term}%')).all()
+
+        results = [{'id': user.id, 'name': user.name, 'email': user.email, 'role': 'user'} for user in users]
+        results += [{'id': doctor.id, 'name': doctor.name, 'email': doctor.email, 'role': 'doctor'} for doctor in doctors]
+
+    return jsonify({'results': results})
+
+@app.route('/api/chats', methods=['GET'])
+@cross_origin(origins=['http://localhost:5173', 'https://hello-belly-22577.web.app', 'https://hello-belly-22577.firebaseapp.com/'], supports_credentials=True)
+def get_chats():
+    user_id = request.args.get('userId')
+    if not user_id:
+        return jsonify({'error': 'User ID is required'}), 400
+
+    sent_messages = Message.query.filter_by(sender_id=user_id).order_by(Message.timestamp.desc()).all()
+    received_messages = Message.query.filter_by(receiver_id=user_id).order_by(Message.timestamp.desc()).all()
+
+    chat_map = {}
+    for message in sent_messages + received_messages:
+        chat_id = message.thread_id
+        if chat_id not in chat_map:
+            other_user_id = message.receiver_id if message.sender_id == user_id else message.sender_id
+            other_user = User.query.get(other_user_id) or Doctor.query.get(other_user_id)
+            chat_map[chat_id] = {
+                'id': chat_id,
+                'otherUserName': other_user.name if other_user else 'Unknown',
+                'receiverId': message.receiver_id,
+                'timestamp': message.timestamp,
+                'subject': message.subject,
+                'lastMessage': message.message
+            }
+        else:
+            chat_map[chat_id]['timestamp'] = max(chat_map[chat_id]['timestamp'], message.timestamp)
+
+    sorted_chats = sorted(chat_map.values(), key=lambda x: x['timestamp'], reverse=True)
+    return jsonify({'chats': sorted_chats})
+
+@app.route('/api/messages', methods=['GET'])
+@cross_origin(origins=['http://localhost:5173', 'https://hello-belly-22577.web.app', 'https://hello-belly-22577.firebaseapp.com/'], supports_credentials=True)
+def get_messages():
+    thread_id = request.args.get('threadId')
+    if not thread_id:
+        return jsonify({'error': 'Thread ID is required'}), 400
+
+    messages = Message.query.filter_by(thread_id=thread_id).order_by(Message.timestamp.asc()).all()
+    messages_data = []
+    for message in messages:
+        sender = User.query.get(message.sender_id) or Doctor.query.get(message.sender_id)
+        messages_data.append({
+            'id': message.id,
+            'senderId': message.sender_id,
+            'senderName': sender.name if sender else 'Unknown',
+            'message': message.message,
+            'timestamp': message.timestamp,
+            'fileUrl': message.file_url,
+            'fileName': message.file_name,
+        })
+
+    return jsonify({'messages': messages_data})
+
+@app.route('/api/messages', methods=['POST'])
+@cross_origin(origins=['http://localhost:5173', 'https://hello-belly-22577.web.app', 'https://hello-belly-22577.firebaseapp.com/'], supports_credentials=True)
+def add_message():
+    data = request.json
+    sender_id = data['senderId']
+    receiver_id = data['receiverId']
+    message = data['message']
+    subject = data['subject']
+    thread_id = data['threadId']
+    file_url = data.get('fileUrl')
+    file_name = data.get('fileName')
+
+    new_message = Message(
+        id=str(uuid.uuid4()),
+        sender_id=sender_id,
+        receiver_id=receiver_id,
+        message=message,
+        subject=subject,
+        thread_id=thread_id,
+        timestamp=datetime.utcnow(),
+        file_url=file_url,
+        file_name=file_name,
+    )
+    db.session.add(new_message)
+    db.session.commit()
+
+    return jsonify({'message': 'Message added successfully'})
+
+@app.route('/api/messages/<thread_id>', methods=['DELETE'])
+@cross_origin(origins=['http://localhost:5173', 'https://hello-belly-22577.web.app', 'https://hello-belly-22577.firebaseapp.com/'], supports_credentials=True)
+def delete_chat(thread_id):
+    messages = Message.query.filter_by(thread_id=thread_id).all()
+    for message in messages:
+        db.session.delete(message)
+
+    db.session.commit()
+
+    return jsonify({'message': 'Chat deleted successfully'})

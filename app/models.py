@@ -83,3 +83,22 @@ class UploadedFile(db.Model):
     doctor_id = db.Column(db.String(255), db.ForeignKey('doctor.id'), nullable=False)
     uploaded_at = db.Column(db.DateTime, default=datetime.utcnow)
     doctor = db.relationship('Doctor', backref='uploaded_files')
+
+class Message(db.Model):
+    id = db.Column(db.String(255), primary_key=True)
+    sender_id = db.Column(db.String(255), nullable=False)
+    receiver_id = db.Column(db.String(255), nullable=False)
+    message = db.Column(db.Text, nullable=False)
+    subject = db.Column(db.String(255), nullable=True)
+    thread_id = db.Column(db.String(255), nullable=False)
+    timestamp = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+    file_url = db.Column(db.String(255), nullable=True)
+    file_name = db.Column(db.String(255), nullable=True)
+
+class Chat(db.Model):
+    id = db.Column(db.String(255), primary_key=True)
+    user1_id = db.Column(db.String(255), nullable=False)
+    user2_id = db.Column(db.String(255), nullable=False)
+    subject = db.Column(db.String(255), nullable=True)
+    last_message = db.Column(db.Text, nullable=True)
+    last_timestamp = db.Column(db.DateTime, nullable=True)
