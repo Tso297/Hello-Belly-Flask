@@ -808,10 +808,22 @@ def delete_doctor(doctor_id):
         db.session.rollback()
         return jsonify({"error": str(e)}), 500
     
+@app.route('/api/files', methods=['GET'])
+@cross_origin(origins=['http://localhost:5173', 'https://hello-belly-22577.web.app', 'https://hello-belly-22577.firebaseapp.com/'], supports_credentials=True)
+def list_files():
+    doctor_id = request.args.get('doctor_id')
+    if not doctor_id:
+        return jsonify({'error': 'Doctor ID is required'}), 400
+
+    files = UploadedFile.query.filter_by(doctor_id=doctor_id).all()
+    file_paths = [{'filename': f.filename, 'file_path': f.file_path} for f in files]
+    return jsonify({'files': file_paths}), 200
+
 @app.route('/api/upload', methods=['POST'])
 @cross_origin(origins=['http://localhost:5173', 'https://hello-belly-22577.web.app', 'https://hello-belly-22577.firebaseapp.com/'], supports_credentials=True)
 def upload_file():
     doctor_id = request.form.get('doctor_id')
+    new_file_name = request.form.get('new_file_name')
     if not doctor_id:
         return jsonify({'error': 'Doctor ID is required'}), 400
 
@@ -824,10 +836,11 @@ def upload_file():
 
     if file and allowed_file(file.filename):
         filename = secure_filename(file.filename)
+        if new_file_name:
+            filename = secure_filename(new_file_name)
         file_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
         file.save(file_path)
 
-        # Save the file information in the database
         uploaded_file = UploadedFile(filename=filename, file_path=file_path, doctor_id=doctor_id)
         db.session.add(uploaded_file)
         db.session.commit()
@@ -836,13 +849,45 @@ def upload_file():
 
     return jsonify({'error': 'File type not allowed'}), 400
 
-@app.route('/api/files', methods=['GET'])
+@app.route('/api/rename_file', methods=['PUT'])
 @cross_origin(origins=['http://localhost:5173', 'https://hello-belly-22577.web.app', 'https://hello-belly-22577.firebaseapp.com/'], supports_credentials=True)
-def list_files():
-    doctor_id = request.args.get('doctor_id')
-    if not doctor_id:
-        return jsonify({'error': 'Doctor ID is required'}), 400
+def rename_file():
+    file_id = request.json.get('file_id')
+    new_file_name = request.json.get('new_file_name')
+    if not file_id or not new_file_name:
+        return jsonify({'error': 'File ID and new file name are required'}), 400
 
-    files = UploadedFile.query.filter_by(doctor_id=doctor_id).all()
-    file_paths = [{'filename': f.filename, 'file_path': f.file_path} for f in files]
-    return jsonify({'files': file_paths}), 200
+    file_record = UploadedFile.query.get(file_id)
+    if not file_record:
+        return jsonify({'error': 'File not found'}), 404
+
+    old_path = file_record.file_path
+    new_file_path = os.path.join(app.config['UPLOAD_FOLDER'], secure_filename(new_file_name))
+
+    try:
+        os.rename(old_path, new_file_path)
+        file_record.filename = secure_filename(new_file_name)
+        file_record.file_path = new_file_path
+        db.session.commit()
+        return jsonify({'message': 'File renamed successfully'}), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/delete_file', methods=['DELETE'])
+@cross_origin(origins=['http://localhost:5173', 'https://hello-belly-22577.web.app', 'https://hello-belly-22577.firebaseapp.com/'], supports_credentials=True)
+def delete_file():
+    file_id = request.json.get('file_id')
+    if not file_id:
+        return jsonify({'error': 'File ID is required'}), 400
+
+    file_record = UploadedFile.query.get(file_id)
+    if not file_record:
+        return jsonify({'error': 'File not found'}), 404
+
+    try:
+        os.remove(file_record.file_path)
+        db.session.delete(file_record)
+        db.session.commit()
+        return jsonify({'message': 'File deleted successfully'}), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
