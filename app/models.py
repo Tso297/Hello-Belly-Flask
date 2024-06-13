@@ -2,6 +2,7 @@ import uuid
 from sqlalchemy import Column, String, DateTime, ForeignKey
 from sqlalchemy.orm import relationship
 from app import db
+import datetime
 
 class User(db.Model):
     id = db.Column(db.String(255), primary_key=True)
@@ -74,3 +75,11 @@ class Class(db.Model):
             'time': self.time.isoformat(),
             'link': self.link
         }
+    
+class UploadedFile(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    filename = db.Column(db.String(255), nullable=False)
+    file_path = db.Column(db.String(255), nullable=False)
+    doctor_id = db.Column(db.String(255), db.ForeignKey('doctor.id'), nullable=False)
+    uploaded_at = db.Column(db.DateTime, default=datetime.utcnow)
+    doctor = db.relationship('Doctor', backref='uploaded_files')

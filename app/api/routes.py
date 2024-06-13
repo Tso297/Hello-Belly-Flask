@@ -811,16 +811,38 @@ def delete_doctor(doctor_id):
 @app.route('/api/upload', methods=['POST'])
 @cross_origin(origins=['http://localhost:5173', 'https://hello-belly-22577.web.app', 'https://hello-belly-22577.firebaseapp.com/'], supports_credentials=True)
 def upload_file():
-    # Check if the post request has the file part
+    doctor_id = request.form.get('doctor_id')
+    if not doctor_id:
+        return jsonify({'error': 'Doctor ID is required'}), 400
+
     if 'file' not in request.files:
         return jsonify({'error': 'No file part'}), 400
+
     file = request.files['file']
-    # If user does not select file, browser also submits an empty part without filename
     if file.filename == '':
         return jsonify({'error': 'No selected file'}), 400
+
     if file and allowed_file(file.filename):
         filename = secure_filename(file.filename)
         file_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
         file.save(file_path)
+
+        # Save the file information in the database
+        uploaded_file = UploadedFile(filename=filename, file_path=file_path, doctor_id=doctor_id)
+        db.session.add(uploaded_file)
+        db.session.commit()
+
         return jsonify({'filePath': file_path}), 200
+
     return jsonify({'error': 'File type not allowed'}), 400
+
+@app.route('/api/files', methods=['GET'])
+@cross_origin(origins=['http://localhost:5173', 'https://hello-belly-22577.web.app', 'https://hello-belly-22577.firebaseapp.com/'], supports_credentials=True)
+def list_files():
+    doctor_id = request.args.get('doctor_id')
+    if not doctor_id:
+        return jsonify({'error': 'Doctor ID is required'}), 400
+
+    files = UploadedFile.query.filter_by(doctor_id=doctor_id).all()
+    file_paths = [{'filename': f.filename, 'file_path': f.file_path} for f in files]
+    return jsonify({'files': file_paths}), 200
