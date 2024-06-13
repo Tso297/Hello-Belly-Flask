@@ -17,6 +17,7 @@ from dotenv import load_dotenv
 from openai import OpenAI
 import openai
 import uuid
+from werkzeug.utils import secure_filename
 
 client = OpenAI(api_key=os.getenv('OPENAI_API_KEY'))
 
@@ -36,12 +37,25 @@ AUTHORIZATION_BASE_URL = os.getenv('AUTHORIZATION_BASE_URL')
 TOKEN_URL = os.getenv('TOKEN_URL')
 API_BASE_URL = os.getenv('API_BASE_URL')
 SENDINBLUE_API_KEY = os.getenv('SENDINBLUE_API_KEY')  # Your Sendinblue API key
+UPLOAD_FOLDER = 'uploads'  # Directory to save uploaded files
+ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif', 'pdf', 'doc', 'docx'}
 
 api = Blueprint('api', __name__, url_prefix='/api')
 classes = []
 appointments = []
 youtube = build('youtube', 'v3', developerKey=YOUTUBE_API_KEY)
 client = OpenAI(api_key=OPENAI_API_KEY)
+
+
+
+app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
+
+if not os.path.exists(UPLOAD_FOLDER):
+    os.makedirs(UPLOAD_FOLDER)
+
+def allowed_file(filename):
+    return '.' in filename and \
+           filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
 def generate_jitsi_link():
     random_string = ''.join(random.choices(string.ascii_lowercase + string.digits, k=10))
@@ -793,3 +807,20 @@ def delete_doctor(doctor_id):
     except Exception as e:
         db.session.rollback()
         return jsonify({"error": str(e)}), 500
+    
+@app.route('/api/upload', methods=['POST'])
+@cross_origin(origins=['http://localhost:5173', 'https://hello-belly-22577.web.app', 'https://hello-belly-22577.firebaseapp.com/'], supports_credentials=True)
+def upload_file():
+    # Check if the post request has the file part
+    if 'file' not in request.files:
+        return jsonify({'error': 'No file part'}), 400
+    file = request.files['file']
+    # If user does not select file, browser also submits an empty part without filename
+    if file.filename == '':
+        return jsonify({'error': 'No selected file'}), 400
+    if file and allowed_file(file.filename):
+        filename = secure_filename(file.filename)
+        file_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+        file.save(file_path)
+        return jsonify({'filePath': file_path}), 200
+    return jsonify({'error': 'File type not allowed'}), 400
