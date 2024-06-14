@@ -41,7 +41,7 @@ AUTHORIZATION_BASE_URL = os.getenv('AUTHORIZATION_BASE_URL')
 TOKEN_URL = os.getenv('TOKEN_URL')
 API_BASE_URL = os.getenv('API_BASE_URL')
 SENDINBLUE_API_KEY = os.getenv('SENDINBLUE_API_KEY')  # Your Sendinblue API key
-UPLOAD_FOLDER = 'uploads'  # Directory to save uploaded files
+UPLOAD_FOLDER = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'uploads')
 ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif', 'pdf', 'doc', 'docx'}
 
 api = Blueprint('api', __name__, url_prefix='/api')
