@@ -828,25 +828,14 @@ def list_files():
 def upload_file():
     doctor_id = request.form.get('doctor_id')
     new_file_name = request.form.get('new_file_name')
-    if not doctor_id:
-        return jsonify({'error': 'Doctor ID is required'}), 400
-
     if 'file' not in request.files:
         return jsonify({'error': 'No file part'}), 400
-
     file = request.files['file']
     if file.filename == '':
         return jsonify({'error': 'No selected file'}), 400
-
     if file and allowed_file(file.filename):
-        filename = secure_filename(file.filename)
-        if new_file_name:
-            filename = secure_filename(new_file_name)
+        filename = secure_filename(new_file_name if new_file_name else file.filename)
         file_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
-        
-        # Debugging: Log the file path
-        app.logger.debug(f"Saving file to: {file_path}")
-        
         file.save(file_path)
 
         uploaded_file = UploadedFile(filename=filename, file_path=file_path, doctor_id=doctor_id)
@@ -854,7 +843,6 @@ def upload_file():
         db.session.commit()
 
         return jsonify({'filePath': file_path}), 200
-
     return jsonify({'error': 'File type not allowed'}), 400
 
 @app.route('/api/rename_file', methods=['PUT'])
