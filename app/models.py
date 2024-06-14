@@ -78,11 +78,17 @@ class Class(db.Model):
     
 class UploadedFile(db.Model):
     id = db.Column(db.Integer, primary_key=True)
-    filename = db.Column(db.String(255), nullable=False)
-    file_path = db.Column(db.String(255), nullable=False)
-    doctor_id = db.Column(db.String(255), db.ForeignKey('doctor.id'), nullable=False)
-    uploaded_at = db.Column(db.DateTime, default=datetime.utcnow)
-    doctor = db.relationship('Doctor', backref='uploaded_files')
+    filename = db.Column(db.String(200), nullable=False)
+    file_path = db.Column(db.String(500), nullable=False)
+    doctor_id = db.Column(db.String(50), nullable=False)
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'filename': self.filename,
+            'file_path': self.file_path,
+            'doctor_id': self.doctor_id
+        }
 
 class Message(db.Model):
     id = db.Column(db.String(255), primary_key=True)
