@@ -896,7 +896,7 @@ def delete_file():
     except Exception as e:
         return jsonify({'error': str(e)}), 500
     
-@app.route('/api/uploads/<filename>')
+@app.route('/uploads/<filename>')
 @cross_origin(origins=['http://localhost:5173', 'https://hello-belly-22577.web.app', 'https://hello-belly-22577.firebaseapp.com/'], supports_credentials=True)
 def uploaded_file(filename):
     return send_from_directory(app.config['UPLOAD_FOLDER'], filename)
