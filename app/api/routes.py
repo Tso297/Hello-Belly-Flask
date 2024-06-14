@@ -843,6 +843,10 @@ def upload_file():
         if new_file_name:
             filename = secure_filename(new_file_name)
         file_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+        
+        # Debugging: Log the file path
+        app.logger.debug(f"Saving file to: {file_path}")
+        
         file.save(file_path)
 
         uploaded_file = UploadedFile(filename=filename, file_path=file_path, doctor_id=doctor_id)
@@ -899,6 +903,7 @@ def delete_file():
 @app.route('/api/uploads/<filename>')
 @cross_origin(origins=['http://localhost:5173', 'https://hello-belly-22577.web.app', 'https://hello-belly-22577.firebaseapp.com/'], supports_credentials=True)
 def uploaded_file(filename):
+    app.logger.debug(f"Serving file: {filename}")
     return send_from_directory(app.config['UPLOAD_FOLDER'], filename)
 
 @app.route('/api/sync_doctors', methods=['GET'])
