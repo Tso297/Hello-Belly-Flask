@@ -842,8 +842,12 @@ def upload_file():
         db.session.add(uploaded_file)
         db.session.commit()
 
-        return jsonify({'filePath': file_path}), 200
+        with open(file_path, "rb") as file:
+            encoded_string = base64.b64encode(file.read()).decode('utf-8')
+
+        return jsonify({'filePath': file_path, 'fileData': encoded_string}), 200
     return jsonify({'error': 'File type not allowed'}), 400
+
 
 @app.route('/api/rename_file', methods=['PUT'])
 @cross_origin(origins=['http://localhost:5173', 'https://hello-belly-22577.web.app', 'https://hello-belly-22577.firebaseapp.com/'], supports_credentials=True)
