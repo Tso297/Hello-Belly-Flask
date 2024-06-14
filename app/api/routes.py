@@ -826,26 +826,18 @@ def list_files():
 @app.route('/api/upload', methods=['POST'])
 @cross_origin(origins=['http://localhost:5173', 'https://hello-belly-22577.web.app', 'https://hello-belly-22577.firebaseapp.com/'], supports_credentials=True)
 def upload_file():
-    if 'file' not in request.files or 'doctor_id' not in request.form:
-        return jsonify({'error': 'No file part or doctor_id'}), 400
+    if 'file' not in request.files:
+        return jsonify({'error': 'No file part'}), 400
 
     file = request.files['file']
-    doctor_id = request.form['doctor_id']
-    new_file_name = request.form.get('new_file_name', secure_filename(file.filename))
-
     if file.filename == '':
         return jsonify({'error': 'No selected file'}), 400
 
     if file and allowed_file(file.filename):
-        filename = secure_filename(new_file_name)
+        filename = secure_filename(file.filename)
         file_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
         file.save(file_path)
-
-        uploaded_file = UploadedFile(filename=filename, file_path=file_path, doctor_id=doctor_id)
-        db.session.add(uploaded_file)
-        db.session.commit()
-
-        return jsonify({'filePath': file_path, 'filename': filename, 'id': uploaded_file.id}), 200
+        return jsonify({'filePath': filename}), 200
 
     return jsonify({'error': 'File type not allowed'}), 400
 
